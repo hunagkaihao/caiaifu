@@ -1,0 +1,21 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+	  <TargetFramework>net6.0</TargetFramework>
+	  <RootNamespace>Ecs</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Http" Version="6.0.0" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    <PackageReference Include="Volo.Abp.AutoMapper" Version="6.0.3" />
+    <PackageReference Include="Volo.Abp.Ddd.Application" Version="6.0.3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Ecs.Application.Contracts\Ecs.Application.Contracts.csproj" />
+    <ProjectReference Include="..\Ecs.Domain\Ecs.Domain.csproj" />
+    <ProjectReference Include="..\Ecs.Tools\Ecs.Tools.csproj" />
+  </ItemGroup>
+
+</Project>
