@@ -55,6 +55,20 @@ public class RcsApiClient : IRcsApiClient
             cancellationToken);
     }
 
+    /// <summary>
+    /// 区域管控区暂停/恢复 → RCS POST .../rcs/rtas/api/robot/controller/zone/pause
+    /// </summary>
+    public Task<RcsApiResponse<object>> ControlZonePauseAsync(
+        RcsZonePauseRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        return PostInternalAsync<RcsZonePauseRequest, object>(
+            "rcs/rtas/api/robot/controller/zone/pause",
+            request,
+            BuildMockZonePause,
+            cancellationToken);
+    }
+
     private async Task<RcsApiResponse<TData>> PostInternalAsync<TRequest, TData>(
         string relativePath,
         TRequest request,
@@ -220,6 +234,21 @@ public class RcsApiClient : IRcsApiClient
             Code = "SUCCESS",
             Message = "成功",
             Data = new RcsTaskCancelResponseData { RobotTaskCode = code, Extra = null },
+            Success = true
+        };
+    }
+
+    /// <summary>
+    /// 为管控区暂停/恢复提供的模拟响应
+    /// </summary>
+    private static RcsApiResponse<object> BuildMockZonePause(RcsZonePauseRequest r)
+    {
+        return new RcsApiResponse<object>
+        {
+            Code = "SUCCESS",
+            Message = $"模拟处理成功：已对区域 {r.ZoneCode} 投递 {r.Invoke} 动作。",
+            Data = null,
+            ErrorCode = "0",
             Success = true
         };
     }
