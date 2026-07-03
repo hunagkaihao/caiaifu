@@ -22,4 +22,9 @@ public interface IRcsApiClient
     Task<RcsApiResponse<RcsTaskCancelResponseData>> CancelTaskAsync(
         RcsTaskCancelRequest request,
         CancellationToken cancellationToken = default);
+
+    /// <summary>POST /api/robot/controller/zone/pause</summary>
+    Task<RcsApiResponse<object>> ControlZonePauseAsync(
+        RcsZonePauseRequest request,
+        CancellationToken cancellationToken = default);
 }
