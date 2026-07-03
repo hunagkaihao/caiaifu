@@ -54,7 +54,7 @@ public class RcsTaskFeedbackPlcDispatcher : IRcsTaskFeedbackPlcDispatcher
         }
 
         var pointCode = await _plcPointResolver
-            .TryResolvePlcPointCodeAsync(request.RobotTaskCode, cancellationToken)
+            .TryResolvePlcPointCodeAsync(request.RobotTaskCode, method, cancellationToken)
             .ConfigureAwait(false);
         if (string.IsNullOrWhiteSpace(pointCode))
         {

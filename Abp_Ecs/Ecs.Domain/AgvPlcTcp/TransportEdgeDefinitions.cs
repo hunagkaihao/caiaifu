@@ -30,8 +30,10 @@ public static class TransportEdgeDefinitions
     {
         taskType = edgeCode switch
         {
-            "A-C" or "A-D" or "B-C" or "B-D" => "qu_tozhi",
-            "C-A" or "C-B" or "D-A" or "D-B" => "ces",
+            //"A-C" or "A-D" or "B-C" or "B-D" => "qu_tozhi",
+            //"C-A" or "C-B" or "D-A" or "D-B" => "ces",
+            "A-C" or "A-D" or "B-C" or "B-D" => "T1",
+            "C-A" or "C-B" or "D-A" or "D-B" => "T1",
             _ => string.Empty
         };
 

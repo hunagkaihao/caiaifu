@@ -27,6 +27,7 @@ public class RcsTransportTaskPlcPointResolver : ITransientDependency
 
     public async Task<string?> TryResolvePlcPointCodeAsync(
         string? robotTaskCode,
+        string? method = null,
         CancellationToken cancellationToken = default)
     {
         if (!RcsTaskFeedbackQuendHandler.TryParseTaskId(robotTaskCode, out var taskId))
@@ -55,12 +56,18 @@ public class RcsTransportTaskPlcPointResolver : ITransientDependency
             return null;
         }
 
-        var pointCode = taskType switch
-        {
-            "qu_tozhi" => task.SourcePointCode,
-            "ces" => task.TargetPointCode,
-            _ => null
-        };
+        //var pointCode = task.EdgeCode switch
+        //{
+        //    //"qu_tozhi" => task.SourcePointCode,
+        //    //"ces" => task.TargetPointCode,
+        //    "A-C" or "A-D" or "B-C" or "B-D" => task.SourcePointCode,
+        //    "C-A" or "C-B" or "D-A" or "D-B" => task.TargetPointCode,
+        //    _ => null
+        //};
+
+        var pointCode = IsPlaceSideMethod(method)
+            ? task.TargetPointCode       // 放货侧 → 放货点位
+            : task.SourcePointCode;      // 取货侧 → 取货点位
 
         if (string.IsNullOrWhiteSpace(pointCode))
         {
@@ -84,5 +91,11 @@ public class RcsTransportTaskPlcPointResolver : ITransientDependency
         }
 
         return canonical;
+    }
+    private static bool IsPlaceSideMethod(string? method)
+    {
+        if (string.IsNullOrWhiteSpace(method)) return false;
+        return method.EndsWith("2", StringComparison.Ordinal) ||
+               method.Contains("Place", StringComparison.OrdinalIgnoreCase);
     }
 }
