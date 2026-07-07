@@ -9,6 +9,9 @@ public interface IRcsTaskFeedbackPlcContinueBackgroundRunner
 {
     /// <summary>投递后台任务：轮询直到收到期望帧；等待期间周期性重发 PLC 指令，或应用停止。</summary>
     void QueueWaitPlcAndContinueRcs(RcsTaskFeedbackPlcContinueJob job);
+
+    /// <summary>按 RCS robotTaskCode 取消正在等待 PLC 应答/重发指令的后台任务。</summary>
+    void CancelByRobotTaskCode(string robotTaskCode);
 }
 
 /// <summary>后台等待 PLC 并继续 RCS 任务所需参数（与 HTTP 请求解耦）。</summary>

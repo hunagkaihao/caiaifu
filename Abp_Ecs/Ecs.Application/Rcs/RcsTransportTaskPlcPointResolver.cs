@@ -47,6 +47,15 @@ public class RcsTransportTaskPlcPointResolver : ITransientDependency
             return null;
         }
 
+        if (string.Equals(task.Status, AgvTransportTaskStatuses.Cancelled, StringComparison.Ordinal))
+        {
+            _logger.LogInformation(
+                "搬运任务已取消，跳过 RCS 回馈 PLC 点位解析 Id={TaskId} robotTaskCode={RobotTaskCode}",
+                taskId,
+                robotTaskCode);
+            return null;
+        }
+
         if (!TransportEdgeDefinitions.TryGetTaskTypeForEdgeCode(task.EdgeCode, out var taskType))
         {
             _logger.LogWarning(

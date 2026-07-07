@@ -8,6 +8,7 @@ public static class AgvTransportTaskStatuses
     public const string Created = "Created";
     public const string Submitted = "Submitted";
     public const string RcsFailed = "RcsFailed";
+    public const string Cancelled = "Cancelled";
     public const string Completed = "Completed";
 
     /// <summary>到达取预备货位</summary>

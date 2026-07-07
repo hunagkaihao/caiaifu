@@ -1,5 +1,7 @@
 using System;
+using System.Threading;
 using System.Threading.Tasks;
+using Ecs;
 using Ecs.Controllers;
 using Microsoft.AspNetCore.Mvc;
 
@@ -46,5 +48,17 @@ public class AgvTransportTaskController : EcsController
             TimeStart = timeStart,
             TimeEnd = timeEnd
         });
+    }
+
+    /// <summary>
+    /// 按任务 Id 取消搬运任务；后端先取消 RCS 任务，成功后复位起终点工位。
+    /// </summary>
+    [HttpPost("{id:guid}/cancel")]
+    public Task<ResponseDto> CancelAsync(
+        [FromRoute] Guid id,
+        [FromBody] CancelAgvTransportTaskInput input,
+        CancellationToken cancellationToken)
+    {
+        return _agvTransportTaskAppService.CancelAsync(id, input, cancellationToken);
     }
 }

@@ -26,18 +26,21 @@ public class AgvPlcTaskDispatchService : ISingletonDependency
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<AgvPlcTaskDispatchService> _logger;
     private readonly IOptionsMonitor<AgvPlcTcpOptions> _optionsMonitor;
+    private readonly AgvPlcTaskDispatchSuppressionRegistry _suppressionRegistry;
     private readonly SemaphoreSlim _dispatchLock = new(1, 1);
 
     public AgvPlcTaskDispatchService(
         AgvPlcRedisStore redisStore,
         IServiceScopeFactory scopeFactory,
         ILogger<AgvPlcTaskDispatchService> logger,
-        IOptionsMonitor<AgvPlcTcpOptions> optionsMonitor)
+        IOptionsMonitor<AgvPlcTcpOptions> optionsMonitor,
+        AgvPlcTaskDispatchSuppressionRegistry suppressionRegistry)
     {
         _redisStore = redisStore;
         _scopeFactory = scopeFactory;
         _logger = logger;
         _optionsMonitor = optionsMonitor;
+        _suppressionRegistry = suppressionRegistry;
     }
 
     /// <param name="lineKey">线别：O1、O2、O3、O4（与配置 Lines 键一致）。</param>
@@ -117,6 +120,26 @@ public class AgvPlcTaskDispatchService : ISingletonDependency
 
             var fs = GetSnap(edge.From);
             var ts = GetSnap(edge.To);
+            var requestPickupActive = RequestPickupTaskActive(fs);
+            var requestPlaceActive = RequestPlaceTaskActive(ts);
+            if (_suppressionRegistry.IsSuppressed(edge.From, edge.To, edge.Code))
+            {
+                if (!requestPickupActive && !requestPlaceActive)
+                {
+                    _suppressionRegistry.Release(edge.From, edge.To, edge.Code);
+                    _logger.LogInformation(
+                        "取消任务抑制已释放 Line={Line} Edge={Edge} {From}->{To}",
+                        lineKey,
+                        edge.Code,
+                        edge.From,
+                        edge.To);
+                }
+                else
+                {
+                    continue;
+                }
+            }
+
             if (AgvPlcRunStates.Normalize(fs.RunState) == AgvPlcRunStates.Disabled ||
                 AgvPlcRunStates.Normalize(ts.RunState) == AgvPlcRunStates.Disabled)
             {

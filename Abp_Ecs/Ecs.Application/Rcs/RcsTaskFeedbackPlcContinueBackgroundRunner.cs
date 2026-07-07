@@ -1,5 +1,6 @@
 #nullable disable
 using System;
+using System.Collections.Concurrent;
 using System.Threading;
 using System.Threading.Tasks;
 using Ecs.AgvPlcTcp;
@@ -26,6 +27,7 @@ public class RcsTaskFeedbackPlcContinueBackgroundRunner : IRcsTaskFeedbackPlcCon
     private readonly IAgvPlcPollPauseRegistry _pollPauseRegistry;
     private readonly IHostApplicationLifetime _lifetime;
     private readonly ILogger<RcsTaskFeedbackPlcContinueBackgroundRunner> _logger;
+    private readonly ConcurrentDictionary<string, CancellationTokenSource> _activeWaits = new(StringComparer.OrdinalIgnoreCase);
 
     public RcsTaskFeedbackPlcContinueBackgroundRunner(
         IServiceScopeFactory scopeFactory,
@@ -64,8 +66,37 @@ public class RcsTaskFeedbackPlcContinueBackgroundRunner : IRcsTaskFeedbackPlcCon
             UpdateBeforeUtc = job.UpdateBeforeUtc
         };
 
+        var taskKey = NormalizeRobotTaskCode(work.RobotTaskCode);
+        var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.ApplicationStopping);
+        if (taskKey != null)
+        {
+            if (_activeWaits.TryRemove(taskKey, out var oldCts))
+            {
+                oldCts.Cancel();
+            }
+
+            _activeWaits[taskKey] = linkedCts;
+        }
+
         _ = Task.Run(
-            () => RunWaitAndContinueAsync(work, _lifetime.ApplicationStopping),
+            async () =>
+            {
+                try
+                {
+                    await RunWaitAndContinueAsync(work, linkedCts.Token).ConfigureAwait(false);
+                }
+                finally
+                {
+                    if (taskKey != null &&
+                        _activeWaits.TryGetValue(taskKey, out var currentCts) &&
+                        ReferenceEquals(currentCts, linkedCts))
+                    {
+                        _activeWaits.TryRemove(taskKey, out _);
+                    }
+
+                    linkedCts.Dispose();
+                }
+            },
             CancellationToken.None);
 
         var expectedDisplay = AgvPlcFrameParser.ToDisplayHexString(expectedPrefix);
@@ -77,6 +108,21 @@ public class RcsTaskFeedbackPlcContinueBackgroundRunner : IRcsTaskFeedbackPlcCon
             work.RobotTaskCode);
         Console.WriteLine(
             $"[RCS 回馈] method={work.Method} 后台等待 {work.PointCode} 应答 {expectedDisplay}（每 {CommandResendIntervalSeconds}s 重发指令），任务号={work.RobotTaskCode}");
+    }
+
+    public void CancelByRobotTaskCode(string robotTaskCode)
+    {
+        var taskKey = NormalizeRobotTaskCode(robotTaskCode);
+        if (taskKey == null)
+        {
+            return;
+        }
+
+        if (_activeWaits.TryRemove(taskKey, out var cts))
+        {
+            cts.Cancel();
+            _logger.LogInformation("已取消 RCS 回馈后台等待/重发任务 RobotTaskCode={TaskCode}", taskKey);
+        }
     }
 
     private async Task RunWaitAndContinueAsync(RcsTaskFeedbackPlcContinueJob job, CancellationToken stoppingToken)
@@ -140,10 +186,20 @@ public class RcsTaskFeedbackPlcContinueBackgroundRunner : IRcsTaskFeedbackPlcCon
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
-            _logger.LogInformation(
-                "RCS 回馈 {Method} 后台等待已随应用停止而取消 RobotTaskCode={TaskCode}",
-                job.Method,
-                job.RobotTaskCode);
+            if (_lifetime.ApplicationStopping.IsCancellationRequested)
+            {
+                _logger.LogInformation(
+                    "RCS 回馈 {Method} 后台等待已随应用停止而取消 RobotTaskCode={TaskCode}",
+                    job.Method,
+                    job.RobotTaskCode);
+            }
+            else
+            {
+                _logger.LogInformation(
+                    "RCS 回馈 {Method} 后台等待已因任务取消而停止 RobotTaskCode={TaskCode}",
+                    job.Method,
+                    job.RobotTaskCode);
+            }
         }
         catch (Exception ex)
         {
@@ -276,5 +332,10 @@ public class RcsTaskFeedbackPlcContinueBackgroundRunner : IRcsTaskFeedbackPlcCon
 
         return string.Equals(response.Code, "SUCCESS", StringComparison.OrdinalIgnoreCase) ||
                response.Code == "0";
+    }
+
+    private static string NormalizeRobotTaskCode(string robotTaskCode)
+    {
+        return string.IsNullOrWhiteSpace(robotTaskCode) ? null : robotTaskCode.Trim();
     }
 }

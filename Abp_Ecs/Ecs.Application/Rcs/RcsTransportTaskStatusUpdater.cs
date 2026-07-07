@@ -77,6 +77,16 @@ public class RcsTransportTaskStatusUpdater : ITransientDependency, IRcsTransport
             return;
         }
 
+        if (string.Equals(task.Status, AgvTransportTaskStatuses.Cancelled, StringComparison.Ordinal))
+        {
+            _logger.LogInformation(
+                "搬运任务已取消，忽略 RCS 回调状态更新 method={Method} Id={TaskId}",
+                rcsMethod,
+                taskId);
+            await uow.CompleteAsync(cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
         task.Status = status;
         await _taskRepository.UpdateAsync(task, autoSave: true, cancellationToken: cancellationToken)
             .ConfigureAwait(false);
