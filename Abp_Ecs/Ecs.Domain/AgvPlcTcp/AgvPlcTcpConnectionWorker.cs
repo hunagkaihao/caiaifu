@@ -5,6 +5,7 @@ using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
 using Ecs.ConfigTool;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Volo.Abp.DependencyInjection;
@@ -21,6 +22,7 @@ public class AgvPlcTcpConnectionWorker : ITransientDependency
     private readonly IOptionsMonitor<AgvPlcTcpOptions> _optionsMonitor;
     private readonly IAgvPlcTcpSessionRegistry _sessionRegistry;
     private readonly IAgvPlcPollPauseRegistry _pollPauseRegistry;
+    private readonly IServiceScopeFactory _serviceScopeFactory;
     private readonly ILogger<AgvPlcTcpConnectionWorker> _logger;
 
     public AgvPlcTcpConnectionWorker(
@@ -28,12 +30,14 @@ public class AgvPlcTcpConnectionWorker : ITransientDependency
         IOptionsMonitor<AgvPlcTcpOptions> optionsMonitor,
         IAgvPlcTcpSessionRegistry sessionRegistry,
         IAgvPlcPollPauseRegistry pollPauseRegistry,
+        IServiceScopeFactory serviceScopeFactory,
         ILogger<AgvPlcTcpConnectionWorker> logger)
     {
         _redisStore = redisStore;
         _optionsMonitor = optionsMonitor;
         _sessionRegistry = sessionRegistry;
         _pollPauseRegistry = pollPauseRegistry;
+        _serviceScopeFactory = serviceScopeFactory;
         _logger = logger;
     }
 
@@ -81,6 +85,7 @@ public class AgvPlcTcpConnectionWorker : ITransientDependency
                 stream.ReadTimeout = opts.ReceiveTimeoutMs;
 
                 buffer.Clear();
+                var hardwareFaultGate = new AgvPlcHardwareFaultGate();
 
                 var writeLock = new SemaphoreSlim(1, 1);
                 async Task WriteLockedAsync(byte[] data, CancellationToken token)
@@ -147,7 +152,9 @@ public class AgvPlcTcpConnectionWorker : ITransientDependency
                         }
 
                         o = _optionsMonitor.CurrentValue;
-                        AgvPlcTcpFrameExtractor.ConsumeFrames(buffer, o, frame =>
+                        var frames = new List<byte[]>();
+                        AgvPlcTcpFrameExtractor.ConsumeFrames(buffer, o, frames.Add);
+                        foreach (var frame in frames)
                         {
                             var hex = AgvPlcFrameParser.ToDisplayHexString(frame);
                             if (frame.Length < 1)
@@ -155,7 +162,7 @@ public class AgvPlcTcpConnectionWorker : ITransientDependency
                                 _logger.LogWarning(
                                     "AgvPlc 收帧过短（需至少 1 字节以解析状态位）{Point} Len={Len} Frame={Hex}",
                                     pointCode, frame.Length, hex);
-                                return;
+                                continue;
                             }
 
                             var statusByte = frame[0];
@@ -188,7 +195,34 @@ public class AgvPlcTcpConnectionWorker : ITransientDependency
                                 $"[AgvPlc {pointCode}] 第1字节 0x{statusByte:X2} 二进制={statusBin} 位为1={activeSummary}");
 
                             _redisStore.MergeProtocolFieldsFromPlcFrame(pointCode, frame, hex, true, null);
-                        });
+
+                            var hardwareStatus = AgvPlcHardwareStatus.FromStatusByte(statusByte);
+                            if (!hardwareFaultGate.ShouldHandle(hardwareStatus))
+                            {
+                                continue;
+                            }
+
+                            try
+                            {
+                                using var scope = _serviceScopeFactory.CreateScope();
+                                var handler = scope.ServiceProvider.GetRequiredService<IAgvPlcHardwareFaultHandler>();
+                                var handled = await handler
+                                    .HandleAsync(pointCode, hardwareStatus, sessionToken)
+                                    .ConfigureAwait(false);
+                                if (handled)
+                                {
+                                    hardwareFaultGate.MarkHandled();
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                _logger.LogError(
+                                    ex,
+                                    "PLC 硬件异常联动双端口暂停失败，后续状态帧将重试 Point={Point} StatusByte=0x{StatusByte:X2}",
+                                    pointCode,
+                                    statusByte);
+                            }
+                        }
                     }
 
                     sessionCts.Cancel();

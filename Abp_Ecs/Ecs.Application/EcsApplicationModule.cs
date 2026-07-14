@@ -1,5 +1,7 @@
 ﻿using System;
 using System.Net.Http;
+using Ecs.AgvPlc;
+using Ecs.AgvPlcTcp;
 using Ecs.Rcs;
 using Microsoft.Extensions.DependencyInjection;
 using Volo.Abp.Application;
@@ -59,6 +61,7 @@ public class EcsApplicationModule : AbpModule
         context.Services.AddTransient<IRcsTaskFeedbackPlcDispatcher, RcsTaskFeedbackPlcDispatcher>();
         context.Services.AddTransient<IRcsTaskFeedbackQuendHandler, RcsTaskFeedbackQuendHandler>();
         context.Services.AddTransient<IAgvPlcSendReadPollSender, AgvPlcSendReadPollSender>();
+        context.Services.AddTransient<IAgvPlcHardwareFaultHandler, AgvPlcHardwareFaultHandler>();
 
         base.ConfigureServices(context);
     }

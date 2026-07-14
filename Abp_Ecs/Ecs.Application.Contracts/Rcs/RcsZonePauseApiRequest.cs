@@ -13,7 +13,7 @@ public class RcsZonePauseApiRequest
     /// <summary>
     /// 地图编号，临时区域时，需要地图编号监控客户端使用
     /// </summary>
-    public string MapCode { get; set; }
+    public string MapCode { get; set; } = RcsZonePauseRequest.DefaultMapCode;
 
     /// <summary>
     /// 固定枚举值：FREEZE(运行急停)、RUN(恢复)
@@ -26,7 +26,9 @@ public class RcsZonePauseApiRequest
 /// </summary>
 public class RcsZonePauseRequest
 {
+    public const string DefaultMapCode = "AA";
+
     public string ZoneCode { get; set; }
-    public string MapCode { get; set; }
+    public string MapCode { get; set; } = DefaultMapCode;
     public string Invoke { get; set; }
 }
