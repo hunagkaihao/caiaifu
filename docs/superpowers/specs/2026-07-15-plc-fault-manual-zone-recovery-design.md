@@ -1,127 +1,127 @@
-# PLC Fault Manual Zone Recovery Design
+# PLC 故障区域人工恢复设计
 
-**Goal:** Monitor the PLC health of the current transport task, pause both task zones on a hardware fault, and let an operator manually restore those zones only after the source and target PLC states are stable for three consecutive frames.
+**目标：** 监听当前搬运任务的 PLC 健康状态；发生硬件异常时暂停任务起点和终点两个区域；起点和终点 PLC 均连续三帧恢复正常后，允许操作员在 ECS 任务列表中手动恢复区域。
 
-## Scope
+## 实施范围
 
-- Continue using the first PLC response byte as the hardware-health source.
-- A point is healthy only when bit 0 (device normal), bit 3 (communication normal), and bit 4 (not emergency stopped) are all `1`.
-- A fault at either endpoint pauses both source and target RCS zones for the current executing task.
-- PLC recovery is performed manually at the PLC/HMI.
-- ECS never automatically sends `RUN` when a PLC becomes healthy.
-- An operator restores the task zones from the task list after both endpoints pass the stability gate.
-- Existing task submission, PLC Seq9/Seq10 matching, RCS callbacks, and cancellation behavior remain unchanged except for the conflict guards defined below.
+- 继续使用 PLC 应答帧第一个字节判断硬件健康状态。
+- 只有 bit0（设备正常）、bit3（通讯正常）和 bit4（未急停）全部为 `1` 时，点位才属于健康状态。
+- 起点或终点任意一端异常时，暂停当前执行任务的起点和终点两个 RCS 区域。
+- PLC 状态由现场人员通过 PLC 或 HMI 人工复位。
+- PLC 恢复正常时，ECS 不自动发送 `RUN`。
+- 起点和终点通过稳定状态校验后，由操作员在任务列表中手动恢复区域。
+- 除下文明确规定的冲突保护外，原有任务下发、PLC Seq9/Seq10 匹配、RCS 回调和取消任务流程保持不变。
 
-## Health Tracking
+## 健康状态统计
 
-Add a singleton in-memory health registry keyed by canonical PLC point code.
+新增一个以标准 PLC 点位编码为键的单例内存健康状态注册表。
 
-- Every complete PLC status frame updates the point's latest health state.
-- A healthy frame increments the consecutive healthy-frame count.
-- Any unhealthy frame or TCP disconnect resets the count to zero.
-- Counts saturate at the required threshold of three.
-- Reading and updating the registry is constant-time and does not query the database.
-- A process restart resets all counts, which is fail-safe because another three healthy frames are required before manual recovery.
+- 每收到一帧完整 PLC 状态帧，就更新对应点位的最新健康状态。
+- 收到健康帧时，连续健康帧计数加一。
+- 收到任意异常帧或 TCP 断开时，连续健康帧计数清零。
+- 连续健康帧计数达到三帧后不再继续增长。
+- 注册表的读写为常量时间操作，不查询数据库。
+- 应用重启后所有计数从零开始，必须重新收到三帧健康状态才能人工恢复，保证默认状态安全。
 
-The health registry is observational only. It does not modify `RunState`, Seq9/Seq10, task status, or task dispatch decisions.
+健康状态注册表只负责观测，不修改 `RunState`、Seq9/Seq10、任务状态或任务派发结果。
 
-## Fault Pause Workflow
+## 故障暂停流程
 
-When a PLC endpoint reports a fault:
+PLC 点位上报异常时执行以下流程：
 
-1. Find the newest executing transport task whose source or target point is the faulting point. Existing `RunState` ownership should make this unique; multiple matches are logged as an invariant violation.
-2. Serialize zone operations for the task.
-3. Re-read the task and stop if it has entered `Cancelling`, `CancelRecoveryRequired`, `Cancelled`, `Completed`, or `RcsFailed`.
-4. Resolve `SourcePointCode` and `TargetPointCode` through `WorkPositions.DeviceName -> SiteName`.
-5. Store both zone codes in the existing `SourceZoneCode` and `TargetZoneCode` fields.
-6. Send `FREEZE` with `mapCode=AA` for each zone that is not already marked paused.
-7. Persist `SourceZonePaused` and `TargetZonePaused` independently after each successful call.
-8. Keep the existing transport-task status unchanged and do not cancel the RCS task.
+1. 查找起点或终点包含该异常点位的最新一条执行中搬运任务。正常情况下，原有 `RunState` 占用机制应保证任务唯一；如果查到多条，则记录业务约束异常日志。
+2. 对该任务的区域操作加锁并串行执行。
+3. 重新读取任务；如果任务已经进入 `Cancelling`、`CancelRecoveryRequired`、`Cancelled`、`Completed` 或 `RcsFailed`，停止故障暂停处理。
+4. 通过 `WorkPositions.DeviceName -> SiteName` 分别解析起点和终点区域编号。
+5. 将区域编号保存到现有的 `SourceZoneCode` 和 `TargetZoneCode` 字段。
+6. 对尚未标记为暂停的区域发送 `FREEZE`，并固定使用 `mapCode=AA`。
+7. 每个区域调用成功后，分别持久化 `SourceZonePaused` 或 `TargetZonePaused`。
+8. 不修改搬运任务原有状态，也不取消 RCS 任务。
 
-If one zone operation fails, the other is still attempted. Later abnormal frames retry only the missing zone operation.
+一个区域暂停失败时，仍然继续尝试另一个区域。后续异常帧只重试尚未暂停成功的区域。
 
-## Manual Fault Recovery
+## 故障区域人工恢复
 
-Add a dedicated task operation for PLC-fault recovery. It must not share the cancellation recovery endpoint.
+新增独立的 PLC 故障区域恢复操作，不与取消任务的区域恢复接口共用。
 
-The backend permits manual fault recovery only when:
+只有同时满足以下条件，后端才允许人工恢复故障区域：
 
-- the task has at least one paused-zone flag;
-- the task is not `Cancelling`, `CancelRecoveryRequired`, or `Cancelled`;
-- source and target PLC connections are present;
-- source and target PLC points each have three consecutive healthy frames.
+- 当前任务至少有一个区域暂停标记；
+- 当前任务状态不是 `Cancelling`、`CancelRecoveryRequired` 或 `Cancelled`；
+- 起点和终点 PLC 均处于连接状态；
+- 起点和终点 PLC 均连续收到三帧健康状态。
 
-The operation re-reads the task under the same task lock, then sends `RUN` only for zones still owned by this task. Successful calls clear the corresponding paused flag. The task status is not changed. If the task has already reached `Completed`, clearing the final paused flag also releases its source and target `RunState`; otherwise the original task continues under its existing RCS state.
+恢复操作在同一个任务锁内重新读取任务，只对该任务仍然持有的暂停区域发送 `RUN`。每个区域恢复成功后清除对应暂停标记，任务状态保持不变。如果任务已经变为 `Completed`，清除最后一个暂停标记后，同时释放任务起点和终点的 `RunState`；否则原任务继续按照已有 RCS 状态执行。
 
-The frontend shows a distinct `恢复故障区域` button for a non-cancelled task with paused-zone flags. The backend remains authoritative and rejects a click made before the three-frame gate is satisfied. The existing cancelled-task recovery button and wording remain separate.
+前端对“未取消且存在区域暂停标记”的任务显示独立的【恢复故障区域】按钮。后端负责最终校验；未达到连续三帧健康条件时，即使点击按钮也必须拒绝恢复。取消任务使用原有的恢复按钮和提示文案，两类操作不混用。
 
-## Cancellation Priority And Conflict Rules
+## 取消优先级与冲突规则
 
-Cancellation has higher priority than hardware-fault recovery.
+取消任务的优先级高于 PLC 故障区域恢复。
 
-- A fault-paused task that enters cancellation keeps its existing paused-zone flags. Cancellation sends `FREEZE` only for a missing zone.
-- Once the task is `Cancelling`, `CancelRecoveryRequired`, or `Cancelled`, fault recovery cannot send `RUN`.
-- Cancellation recovery still requires source Seq9 and target Seq10 to be zero.
-- Cancellation recovery additionally requires both endpoint PLC states to have three consecutive healthy frames.
-- A PLC fault received after cancellation starts does not create a second pause workflow.
-- Task cancellation, hardware pause, cancellation recovery, and fault recovery are serialized per task.
+- 已因 PLC 故障暂停的任务进入取消流程时，保留已有区域暂停标记；取消流程只对尚未暂停的区域补发 `FREEZE`。
+- 任务进入 `Cancelling`、`CancelRecoveryRequired` 或 `Cancelled` 后，故障恢复流程不得发送 `RUN`。
+- 取消任务恢复仍然要求起点 Seq9 和终点 Seq10 均为 `0`。
+- 取消任务恢复还要求起点和终点 PLC 均连续收到三帧健康状态。
+- 取消流程开始后收到的 PLC 异常，不再创建第二套故障暂停流程。
+- 任务取消、故障暂停、取消恢复和故障恢复按任务串行执行。
 
-Zone `RUN` operations also check whether another task still owns a paused flag for the same `zoneCode`. ECS sends `RUN` only when the current operation releases the final owner. This prevents one task from reopening a zone still required by another task.
+发送区域 `RUN` 前还要检查是否有其他任务仍然对同一个 `zoneCode` 持有暂停标记。只有当前操作释放的是最后一个持有者时，ECS 才向 RCS 发送 `RUN`，避免一个任务提前恢复另一个任务仍需暂停的区域。
 
-## RCS Callback Guards
+## RCS 回调保护
 
-- RCS status callbacks must not overwrite `Cancelling`, `CancelRecoveryRequired`, or `Cancelled`.
-- `quend` and `fanend` must not release point `RunState` while a task is cancelling, cancelled, or still owns a paused zone.
-- When fault recovery clears the final pause for an already completed task, it performs the deferred `RunState` release.
+- RCS 状态回调不得覆盖 `Cancelling`、`CancelRecoveryRequired` 或 `Cancelled` 状态。
+- 任务正在取消、已经取消或仍持有区域暂停标记时，`quend` 和 `fanend` 不得释放点位 `RunState`。
+- 已完成任务在故障区域人工恢复并清除最后一个暂停标记后，再执行之前延后的 `RunState` 释放。
 
-These guards prevent late callbacks from reopening cancelled or fault-paused points.
+这些保护用于防止迟到的 RCS 回调提前开放已取消或仍处于区域暂停状态的点位。
 
-## Isolation From Normal Task Flow
+## 与正常任务流程隔离
 
-- Healthy PLC frames perform only an in-memory health-counter update.
-- No RCS zone call or database query occurs for an ordinary healthy frame.
-- Seq9/Seq10 parsing and edge matching remain unchanged.
-- A fault with no related executing task records the health state and logs the condition but does not pause a zone.
-- Only the current task's source and target zone codes are controlled.
-- Tasks that do not use those points continue through the existing dispatch path.
+- 普通健康 PLC 帧只更新内存中的健康帧计数。
+- 普通健康帧不会调用 RCS 区域接口，也不会查询数据库。
+- Seq9/Seq10 解析和边匹配逻辑保持不变。
+- PLC 异常点位没有关联执行中任务时，只记录健康状态和日志，不暂停任何区域。
+- 只控制当前任务保存的起点和终点区域编号。
+- 不使用这些点位的其他任务继续走原有派发流程。
 
-RCS `FREEZE` operates at zone scope. If two configured work positions share the same `SiteName`, both are physically affected by that RCS zone; the final-owner check prevents an early `RUN`, but configuration must still keep port zone codes unique where operational isolation is required.
+RCS 的 `FREEZE` 按区域生效。如果两个工位配置了相同的 `SiteName`，RCS 会同时影响该区域内的车辆。最后持有者检查可以防止提前发送 `RUN`，但需要业务配置保证要求物理隔离的端口使用唯一的区域编号。
 
-## Error Handling And Idempotency
+## 异常处理与幂等性
 
-- Persist each successful `FREEZE` or `RUN` independently.
-- Retrying pause or recovery skips already completed zone operations.
-- A partial recovery leaves the failed zone marked paused and keeps the recovery action available.
-- Repeated button clicks are serialized and become no-ops after both flags are clear.
-- RCS failures preserve task status and return the failing zone code to the operator.
-- No new database columns or migrations are introduced.
+- 每个成功的 `FREEZE` 或 `RUN` 都单独持久化。
+- 重试暂停或恢复时，跳过已经完成的区域操作。
+- 部分恢复失败时，失败区域继续保持暂停标记，恢复按钮继续显示。
+- 重复点击恢复按钮时，后端按任务串行处理；两个暂停标记都清除后，后续调用直接返回已恢复。
+- RCS 调用失败时保留任务原状态，并向操作员返回失败的区域编号。
+- 不新增数据库字段或 EF Core 迁移。
 
-## Verification
+## 测试与验证
 
-Automated tests must cover:
+自动化测试必须覆盖：
 
-- health requires bits 0, 3, and 4;
-- three consecutive healthy frames are required;
-- any fault or disconnect resets the counter;
-- a fault on either endpoint pauses both task zones;
-- pause success persists zone codes and independent paused flags;
-- normal frames do not invoke RCS zone control;
-- fault recovery is rejected at zero, one, or two healthy frames;
-- manual recovery sends `RUN` for both zones at three healthy frames;
-- an unhealthy opposite endpoint blocks recovery;
-- cancellation takes priority over fault recovery;
-- a fault-paused task can transition into cancellation without duplicate pause calls;
-- cancellation recovery still requires Seq9/Seq10 and stable health;
-- another task's pause ownership prevents an early zone `RUN`;
-- late RCS callbacks do not overwrite cancellation status or release locked points;
-- normal Seq9/Seq10 task dispatch behavior remains unchanged.
+- bit0、bit3 和 bit4 全部正常时才判定为健康；
+- 必须连续收到三帧健康状态；
+- 任意异常帧或连接断开都会清零计数；
+- 起点或终点任意一端异常都会暂停任务两个区域；
+- 暂停成功后持久化区域编号及两个独立暂停标记；
+- 普通健康帧不会调用 RCS 区域控制；
+- 连续健康帧为零、一帧或两帧时拒绝故障恢复；
+- 连续三帧健康后，人工恢复会对两个区域发送 `RUN`；
+- 任意一端仍异常时拒绝恢复；
+- 取消任务优先于故障恢复；
+- 故障暂停任务进入取消流程时不重复暂停已成功的区域；
+- 取消恢复仍然校验 Seq9、Seq10 和连续三帧健康状态；
+- 其他任务仍持有相同区域暂停标记时，不提前发送 `RUN`；
+- 迟到的 RCS 回调不会覆盖取消状态或释放锁定点位；
+- 原有 Seq9/Seq10 任务派发行为保持不变。
 
-Final verification includes all Application tests, a full solution build, frontend lint, and frontend production build.
+最终验证包括：全部 Application 测试、完整解决方案编译、前端代码检查和前端生产构建。
 
-## Non-Goals
+## 非实施目标
 
-- No automatic RCS zone recovery.
-- No PLC protocol or frame-layout change.
-- No automatic PLC reset command.
-- No change to the RCS transport task when a hardware fault occurs.
-- No new database schema.
+- 不自动恢复 RCS 区域。
+- 不修改 PLC 协议或帧结构。
+- 不向 PLC 自动发送复位指令。
+- PLC 硬件异常时不修改 RCS 搬运任务状态。
+- 不新增数据库结构。
