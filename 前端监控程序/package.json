@@ -5,7 +5,10 @@
   "scripts": {
     "serve": "vue-cli-service serve",
     "build": "vue-cli-service build",
-    "lint": "vue-cli-service lint"
+    "lint": "vue-cli-service lint",
+    "test:carrier-site": "node tests/carrierSiteConfig.test.js",
+    "test:task-status": "node tests/taskStatusConfig.test.js",
+    "test:task-actions": "node tests/taskActionState.test.js"
   },
   "dependencies": {
     "core-js": "^3.8.3",

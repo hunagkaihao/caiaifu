@@ -20,4 +20,14 @@ public interface IAgvTransportTaskAppService : IApplicationService
         Guid id,
         CancelAgvTransportTaskInput input = null,
         CancellationToken cancellationToken = default);
+
+    /// <summary>恢复已取消任务暂停的起点和终点区域。</summary>
+    Task<ResponseDto> ResumeZonesAsync(
+        Guid id,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>PLC 双端连续三帧健康后，人工恢复故障暂停区域。</summary>
+    Task<ResponseDto> ResumeFaultZonesAsync(
+        Guid id,
+        CancellationToken cancellationToken = default);
 }

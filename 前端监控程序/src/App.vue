@@ -1,7 +1,7 @@
 <template>
   <div class="app-container">
     <div class="page-header">
-      <h1 class="page-title">AGV-PLC设备点位监控</h1>
+      <h1 class="page-title">ECS AGV-PLC设备点位监控</h1>
       <div class="page-meta">
         <span class="meta-item">{{ lastRefreshText }}</span>
       </div>
@@ -12,6 +12,7 @@
         <el-tab-pane v-for="line in lines" :key="line" :label="line" :name="line" />
         <el-tab-pane label="任务管理" name="tasks" />
         <el-tab-pane label="点位管理" name="work-positions" />
+        <el-tab-pane label="货架管理" :name="TAB_CARRIER_MANAGEMENT" />
       </el-tabs>
 
       <el-card v-if="isPlcTab" class="line-card" shadow="hover">
@@ -104,18 +105,18 @@
               @keyup.enter.native="onTaskSearch" />
           </el-form-item>
           <el-form-item label="任务状态">
-            <el-select v-model="taskFilter.taskStatus" placeholder="全部" clearable style="width: 120px">
-              <el-option label="完成" value="完成" />
-              <el-option label="未完成" value="未完成" />
+            <el-select v-model="taskFilter.taskStatus" placeholder="全部" clearable style="width: 160px">
+              <el-option v-for="option in taskStatusOptions" :key="option.value" :label="option.label"
+                :value="option.value" />
             </el-select>
           </el-form-item>
           <el-form-item label="创建时间起">
             <el-date-picker v-model="taskFilter.timeStart" type="datetime" placeholder="起始时间"
-              value-format="yyyy-MM-dd HH:mm:ss" format="yyyy-MM-dd HH:mm:ss" clearable style="width: 180px" />
+              value-format="yyyy-MM-dd HH:mm:ss" format="yyyy-MM-dd HH:mm:ss" clearable style="width: 200px" />
           </el-form-item>
           <el-form-item label="创建时间止">
             <el-date-picker v-model="taskFilter.timeEnd" type="datetime" placeholder="结束时间"
-              value-format="yyyy-MM-dd HH:mm:ss" format="yyyy-MM-dd HH:mm:ss" clearable style="width: 180px" />
+              value-format="yyyy-MM-dd HH:mm:ss" format="yyyy-MM-dd HH:mm:ss" clearable style="width: 200px" />
           </el-form-item>
           <el-form-item>
             <el-button type="primary" :loading="taskLoading" @click="onTaskSearch">查询</el-button>
@@ -156,11 +157,19 @@
               {{ formatUtc(scope.row.creationTime) }}
             </template>
           </el-table-column>
-          <el-table-column label="操作" width="120" align="center" fixed="right">
+          <el-table-column label="操作" width="270" align="center" fixed="right">
             <template slot-scope="scope">
               <el-button type="text" size="small" class="btn-danger-text" :disabled="!canCancelTask(scope.row)"
                 :loading="!!cancellingTasks[scope.row.id]" @click="confirmCancelTransportTask(scope.row)">
                 取消任务
+              </el-button>
+              <el-button v-if="canResumeTaskZones(scope.row)" type="text" size="small"
+                :loading="!!resumingTaskZones[scope.row.id]" @click="confirmResumeTaskZones(scope.row)">
+                恢复区域
+              </el-button>
+              <el-button v-if="canResumeFaultTaskZonesRow(scope.row)" type="text" size="small"
+                :loading="!!resumingFaultTaskZones[scope.row.id]" @click="confirmResumeFaultTaskZones(scope.row)">
+                恢复故障区域
               </el-button>
             </template>
           </el-table-column>
@@ -171,6 +180,37 @@
             :page-sizes="[10, 20, 50]" :page-size.sync="taskPageSize" :total="taskTotal"
             @current-change="fetchTransportTasks" @size-change="onTaskPageSizeChange" />
         </div>
+      </el-card>
+
+      <el-card v-else-if="activeTab === TAB_CARRIER_MANAGEMENT" class="line-card" shadow="hover">
+        <div slot="header" class="line-card-header">
+          <span class="line-badge">货架</span>
+          <span class="line-title">货架与机台管理</span>
+        </div>
+        <el-form ref="carrierManagementFormRef" :model="carrierManagementForm" :rules="carrierManagementRules"
+          label-width="96px" size="small" class="carrier-management-form">
+          <el-form-item label="操作类型">
+            <el-radio-group v-model="carrierManagementAction" size="small">
+              <el-radio-button :label="CARRIER_ACTIONS.BIND">绑定</el-radio-button>
+              <el-radio-button :label="CARRIER_ACTIONS.UNBIND">解绑</el-radio-button>
+            </el-radio-group>
+          </el-form-item>
+          <el-form-item label="机台端口" prop="siteCode">
+            <el-cascader v-model="carrierManagementForm.siteCode" :options="carrierSiteOptions"
+              :props="carrierSiteCascaderProps" placeholder="请选择机台端口" clearable style="width: 100%" />
+          </el-form-item>
+          <el-form-item label="货架编号" prop="carrierCode">
+            <el-input v-model="carrierManagementForm.carrierCode" placeholder="请输入或扫描货架编号" maxlength="64" clearable
+              @keyup.enter.native="submitCarrierManagement" />
+          </el-form-item>
+          <el-form-item>
+            <el-button :type="carrierManagementAction === CARRIER_ACTIONS.BIND ? 'primary' : 'danger'"
+              :icon="carrierManagementAction === CARRIER_ACTIONS.BIND ? 'el-icon-link' : 'el-icon-unlock'"
+              :loading="carrierManagementSubmitting" @click="submitCarrierManagement">
+              确认{{ getCarrierActionConfig(carrierManagementAction).label }}
+            </el-button>
+          </el-form-item>
+        </el-form>
       </el-card>
 
       <el-card v-else-if="activeTab === TAB_WORK_POSITIONS" class="line-card work-position-card" shadow="hover">
@@ -245,6 +285,21 @@
 </template>
 
 <script>
+  const {
+    CARRIER_SITE_OPTIONS,
+    CARRIER_ACTIONS,
+    createCarrierPayload,
+    getCarrierActionConfig,
+  } = require('./carrierSiteConfig')
+  const {
+    canResumeCancelledTaskZones,
+    canResumeFaultTaskZones,
+  } = require('./taskActionState')
+  const {
+    TASK_STATUS_FILTER_OPTIONS,
+    TASK_STATUS_LABELS,
+  } = require('./taskStatusConfig')
+
   /** 本地开发默认直连 ECS HTTP 端口（与后端监听一致）；生产请在 .env.production 设置 VUE_APP_ECS_BASE 或网关同源反代 */
   const ECS_DEFAULT_DEV = 'http://localhost:3270'
 
@@ -260,9 +315,11 @@
     return process.env.NODE_ENV === 'development' ? ECS_DEFAULT_DEV : ''
   }
 
+  // PLC 设备端口映射
   const LINES = ['O1', 'O2', 'O3', 'O4']
   const TAB_TASKS = 'tasks'
   const TAB_WORK_POSITIONS = 'work-positions'
+  const TAB_CARRIER_MANAGEMENT = 'carrier-management'
   const POINT_PORT_CODES = {
     O1A: '6061',
     O1B: '6060',
@@ -286,23 +343,15 @@
     return acc
   }, {})
 
-  /** 搬运任务 Status 英文 → 中文展示 */
-  const TASK_STATUS_LABELS = {
-    Submitted: '创建',
-    RcsFailed: 'RCS下发失败',
-    Cancelled: '已取消',
-    Completed: '完成',
-    ArrivePreparePosition1: '到达取预备货位',
-    ArriveDockStation1: '到达取货位',
-    PickComplete: '取货完成',
-    RetreatPreparePosition1: '退回取货预备位',
-    ArrivePreparePosition2: '到达放货预备位',
-    ArriveDockStation2: '到达放货位',
-    PlaceComplete: '放货完成',
-    RetreatPreparePosition2: '退回放货预备位',
-  }
-
   const WORK_POSITION_STATUS_OPTIONS = ['可用', '禁用']
+
+  function validateCarrierCode(rule, value, callback) {
+    if (!String(value || '').trim()) {
+      callback(new Error('请输入货架编号'))
+      return
+    }
+    callback()
+  }
 
   function padDatePart(n) {
     return String(n).padStart(2, '0')
@@ -341,9 +390,9 @@
     { key: 'seq3_AllowPlace', label: '③允许放货' },
     { key: 'seq4_CommDiagnosis', label: '④通讯诊断' },
     { key: 'seq5_EmergencyStop', label: '⑤急停' },
-    { key: 'seq6_Spare', label: '⑥预留' },
-    { key: 'seq7_ReadyPosition', label: '⑦就位' },
-    { key: 'seq8_WorkingPosition', label: '⑧工作位' },
+    { key: 'seq6_Spare', label: '⑥关门完成' },
+    { key: 'seq7_ReadyPosition', label: '⑦允许进入' },
+    { key: 'seq8_WorkingPosition', label: '⑧允许离开' },
     { key: 'seq9_RequestPickupTask', label: '⑨请求取货' },
     { key: 'seq10_RequestPlaceTask', label: '⑩请求放货' },
   ]
@@ -352,6 +401,8 @@
     data() {
       return {
         TAB_WORK_POSITIONS,
+        TAB_CARRIER_MANAGEMENT,
+        CARRIER_ACTIONS,
         lines: LINES,
         activeTab: 'O1',
         seqFields: SEQ_FIELDS,
@@ -368,7 +419,22 @@
         taskListError: '',
         taskLoading: false,
         cancellingTasks: {},
+        resumingTaskZones: {},
+        resumingFaultTaskZones: {},
         taskFilter: createDefaultTaskFilter(),
+        taskStatusOptions: TASK_STATUS_FILTER_OPTIONS,
+        carrierSiteOptions: CARRIER_SITE_OPTIONS,
+        carrierSiteCascaderProps: { emitPath: false },
+        carrierManagementAction: CARRIER_ACTIONS.BIND,
+        carrierManagementSubmitting: false,
+        carrierManagementForm: {
+          siteCode: '',
+          carrierCode: '',
+        },
+        carrierManagementRules: {
+          siteCode: [{ required: true, message: '请选择机台端口', trigger: 'change' }],
+          carrierCode: [{ validator: validateCarrierCode, trigger: ['blur', 'change'] }],
+        },
         workPositionItems: [],
         workPositionListError: '',
         workPositionLoading: false,
@@ -441,6 +507,7 @@
         const s = val !== undefined && val !== null ? String(val).trim() : ''
         if (s === '0') return '运行状态：空闲'
         if (s === '1') return '运行状态：锁定'
+        if (s === '2') return '运行状态：暂停'
         return s ? `运行状态：${s}` : '运行状态：—'
       },
       runStateTagType(val) {
@@ -699,6 +766,72 @@
           this.$message.error((e && e.message) || String(e))
         }
       },
+      getCarrierActionConfig,
+      carrierManagementUrl(action) {
+        const path = getCarrierActionConfig(action).path
+        return this.apiRoot ? `${this.apiRoot}${path}` : path
+      },
+      async submitCarrierManagement() {
+        const formRef = this.$refs.carrierManagementFormRef
+        if (!formRef) return
+        try {
+          await formRef.validate()
+        } catch (e) {
+          return
+        }
+
+        const actionConfig = getCarrierActionConfig(this.carrierManagementAction)
+        const payload = createCarrierPayload(
+          this.carrierManagementForm.siteCode,
+          this.carrierManagementForm.carrierCode
+        )
+        try {
+          await this.$confirm(
+            `确认将货架「${payload.carrierCode}」与机台端口「${payload.siteCode}」${actionConfig.label}？`,
+            `${actionConfig.label}确认`,
+            {
+              confirmButtonText: `确认${actionConfig.label}`,
+              cancelButtonText: '取消',
+              type: actionConfig.action === CARRIER_ACTIONS.UNBIND ? 'warning' : 'info',
+            }
+          )
+        } catch (e) {
+          return
+        }
+
+        this.carrierManagementSubmitting = true
+        try {
+          const res = await fetch(this.carrierManagementUrl(actionConfig.action), {
+            method: 'POST',
+            headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          })
+          const text = await res.text()
+          let body = {}
+          try {
+            const parsedBody = text ? JSON.parse(text) : {}
+            body = parsedBody && typeof parsedBody === 'object' && !Array.isArray(parsedBody)
+              ? parsedBody
+              : { message: typeof parsedBody === 'string' ? parsedBody : '' }
+          } catch (e) {
+            body = { message: text }
+          }
+          if (!res.ok) {
+            throw new Error(`HTTP ${res.status} ${res.statusText}：${text.slice(0, 200)}`)
+          }
+          if (!(body.code === 'SUCCESS' || body.success === true)) {
+            const code = body.code ? `[${body.code}] ` : ''
+            throw new Error(`${code}${body.message || `${actionConfig.label}失败`}`)
+          }
+          this.$message.success(body.message || `${actionConfig.label}成功`)
+          this.carrierManagementForm.carrierCode = ''
+          formRef.clearValidate('carrierCode')
+        } catch (e) {
+          this.$message.error((e && e.message) || String(e))
+        } finally {
+          this.carrierManagementSubmitting = false
+        }
+      },
       transportTasksUrl() {
         const path = '/ecs/agv-transport-tasks'
         const q = new URLSearchParams({
@@ -719,6 +852,14 @@
       },
       cancelTransportTaskUrl(id) {
         const path = `/ecs/agv-transport-tasks/${encodeURIComponent(id)}/cancel`
+        return this.apiRoot ? `${this.apiRoot}${path}` : path
+      },
+      resumeTaskZonesUrl(id) {
+        const path = `/ecs/agv-transport-tasks/${encodeURIComponent(id)}/resume-zones`
+        return this.apiRoot ? `${this.apiRoot}${path}` : path
+      },
+      resumeFaultTaskZonesUrl(id) {
+        const path = `/ecs/agv-transport-tasks/${encodeURIComponent(id)}/resume-fault-zones`
         return this.apiRoot ? `${this.apiRoot}${path}` : path
       },
       async fetchTransportTasks() {
@@ -779,6 +920,12 @@
           status !== 'Cancelled' &&
           status !== 'RcsFailed'
       },
+      canResumeTaskZones(row) {
+        return canResumeCancelledTaskZones(row)
+      },
+      canResumeFaultTaskZonesRow(row) {
+        return canResumeFaultTaskZones(row)
+      },
       async confirmCancelTransportTask(row) {
         if (!this.canCancelTask(row)) return
         const id = row.id
@@ -829,6 +976,98 @@
           this.$delete(this.cancellingTasks, id)
         }
       },
+      async confirmResumeTaskZones(row) {
+        if (!this.canResumeTaskZones(row)) return
+        const id = row.id
+        const sourceZone = row.sourceZoneCode || this.displayPointCode(row.sourcePointCode)
+        const targetZone = row.targetZoneCode || this.displayPointCode(row.targetPointCode)
+        try {
+          await this.$confirm(
+            `确认恢复任务 ${id} 的暂停区域？起点区域 ${sourceZone}，终点区域 ${targetZone}。`,
+            '恢复区域确认',
+            {
+              confirmButtonText: '确认恢复',
+              cancelButtonText: '返回',
+              type: 'warning',
+            }
+          )
+        } catch (e) {
+          return
+        }
+
+        this.$set(this.resumingTaskZones, id, true)
+        try {
+          const res = await fetch(this.resumeTaskZonesUrl(id), {
+            method: 'POST',
+            headers: { Accept: 'application/json' },
+          })
+          const text = await res.text()
+          let body = {}
+          try {
+            body = text ? JSON.parse(text) : {}
+          } catch (e) {
+            body = { message: text }
+          }
+          if (!res.ok) {
+            throw new Error(`HTTP ${res.status} ${res.statusText}：${text.slice(0, 200)}`)
+          }
+          if (body && body.success === false) {
+            throw new Error(body.message || '恢复区域失败')
+          }
+          this.$message.success((body && body.message) || '恢复区域成功')
+          await this.fetchTransportTasks()
+        } catch (e) {
+          this.$message.error((e && e.message) || String(e))
+        } finally {
+          this.$delete(this.resumingTaskZones, id)
+        }
+      },
+      async confirmResumeFaultTaskZones(row) {
+        if (!this.canResumeFaultTaskZonesRow(row)) return
+        const id = row.id
+        const sourceZone = row.sourceZoneCode || this.displayPointCode(row.sourcePointCode)
+        const targetZone = row.targetZoneCode || this.displayPointCode(row.targetPointCode)
+        try {
+          await this.$confirm(
+            `确认恢复任务 ${id} 的故障暂停区域？起点区域 ${sourceZone}，终点区域 ${targetZone}。`,
+            '恢复故障区域确认',
+            {
+              confirmButtonText: '确认恢复',
+              cancelButtonText: '返回',
+              type: 'warning',
+            }
+          )
+        } catch (e) {
+          return
+        }
+
+        this.$set(this.resumingFaultTaskZones, id, true)
+        try {
+          const res = await fetch(this.resumeFaultTaskZonesUrl(id), {
+            method: 'POST',
+            headers: { Accept: 'application/json' },
+          })
+          const text = await res.text()
+          let body = {}
+          try {
+            body = text ? JSON.parse(text) : {}
+          } catch (e) {
+            body = { message: text }
+          }
+          if (!res.ok) {
+            throw new Error(`HTTP ${res.status} ${res.statusText}：${text.slice(0, 200)}`)
+          }
+          if (body && body.success === false) {
+            throw new Error(body.message || '恢复故障区域失败')
+          }
+          this.$message.success((body && body.message) || '恢复故障区域成功')
+          await this.fetchTransportTasks()
+        } catch (e) {
+          this.$message.error((e && e.message) || String(e))
+        } finally {
+          this.$delete(this.resumingFaultTaskZones, id)
+        }
+      },
       taskStatusLabel(status) {
         if (status === undefined || status === null || status === '') return '—'
         const key = String(status).trim()
@@ -836,7 +1075,7 @@
       },
       taskStatusTagType(status) {
         const key = status !== undefined && status !== null ? String(status).trim() : ''
-        if (key === 'RcsFailed') return 'danger'
+        if (key === 'RcsFailed' || key === 'CancelRecoveryRequired') return 'danger'
         if (key === 'Completed') return 'success'
         if (key === 'Cancelled') return 'warning'
         return 'info'
@@ -878,33 +1117,50 @@
 
 <style scoped>
   .app-container {
-    padding: 16px 32px 28px;
-    background-color: #f0f2f5;
+    --surface: #ffffff;
+    --surface-soft: #f7f9fc;
+    --surface-muted: #eef3f8;
+    --line: #dfe7f0;
+    --line-strong: #c8d6e5;
+    --text-main: #223044;
+    --text-soft: #64748b;
+    --primary: #2f80ed;
+    --success: #2f9e44;
+    --warning: #d97706;
+    --danger: #e5484d;
+
+    padding: 20px 32px 32px;
+    background:
+      linear-gradient(180deg, #f7f9fc 0%, #edf2f7 100%);
     min-height: 100vh;
     box-sizing: border-box;
     width: 100%;
     max-width: 1920px;
     margin: 0 auto;
+    color: var(--text-main);
   }
 
   .page-header {
-    margin-bottom: 12px;
+    position: relative;
+    margin-bottom: 14px;
+    padding-bottom: 14px;
     display: flex;
     flex-direction: row;
     align-items: center;
     justify-content: space-between;
     flex-wrap: wrap;
     gap: 12px 16px;
+    border-bottom: 1px solid rgba(200, 214, 229, 0.86);
   }
 
   .page-title {
     margin: 0;
-    font-size: 20px;
+    font-size: 22px;
     font-weight: 600;
     line-height: 1.35;
-    color: #303133;
+    color: var(--text-main);
     flex: 1;
-    min-width: 0;
+    min-width: 240px;
   }
 
   .page-meta {
@@ -913,9 +1169,34 @@
     align-items: center;
     justify-content: flex-end;
     gap: 12px;
-    color: #606266;
+    color: var(--text-soft);
     font-size: 13px;
     flex-shrink: 0;
+  }
+
+  .meta-item {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    min-height: 28px;
+    padding: 4px 10px 4px 28px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.78);
+    box-shadow: 0 6px 16px rgba(34, 48, 68, 0.05);
+    box-sizing: border-box;
+  }
+
+  .meta-item::before {
+    content: "";
+    position: absolute;
+    left: 11px;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--success);
+    box-shadow: 0 0 0 4px rgba(47, 158, 68, 0.12);
+    animation: statusPulse 2.4s ease-in-out infinite;
   }
 
   .meta-item code {
@@ -935,15 +1216,79 @@
 
   .line-tabs>>>.el-tabs__header {
     margin-bottom: 0;
+    border-bottom: 0;
+  }
+
+  .line-tabs>>>.el-tabs__nav-scroll {
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+
+  .line-tabs>>>.el-tabs__nav-scroll::-webkit-scrollbar {
+    height: 4px;
+  }
+
+  .line-tabs>>>.el-tabs__nav-scroll::-webkit-scrollbar-thumb {
+    background: #c8d6e5;
+    border-radius: 999px;
+  }
+
+  .line-tabs>>>.el-tabs__nav-wrap {
+    padding: 3px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.78);
+    box-shadow: 0 8px 20px rgba(34, 48, 68, 0.05);
+  }
+
+  .line-tabs>>>.el-tabs__nav-wrap::after {
+    display: none;
+  }
+
+  .line-tabs>>>.el-tabs__nav {
+    border: 0;
+    white-space: nowrap;
+  }
+
+  .line-tabs>>>.el-tabs__item {
+    height: 36px;
+    line-height: 36px;
+    margin-right: 3px;
+    border: 0;
+    border-radius: 6px;
+    color: var(--text-soft);
+    transition: color 0.18s ease, background-color 0.18s ease, box-shadow 0.18s ease;
+  }
+
+  .line-tabs>>>.el-tabs__item:hover {
+    color: var(--primary);
+    background: #eef6ff;
+  }
+
+  .line-tabs>>>.el-tabs__item.is-active {
+    color: var(--primary);
+    background: #fff;
+    box-shadow: 0 4px 12px rgba(47, 128, 237, 0.16);
   }
 
   .line-card {
+    overflow: hidden;
+    border: 1px solid var(--line);
     border-radius: 8px;
+    background: var(--surface);
+    box-shadow: 0 14px 34px rgba(34, 48, 68, 0.08);
+    animation: surfaceIn 0.28s ease both;
   }
 
   .line-card>>>.el-card__header {
-    padding: 8px 16px;
+    padding: 10px 16px;
     min-height: 0;
+    border-bottom: 1px solid var(--line);
+    background: linear-gradient(90deg, #f8fbff 0%, #ffffff 68%);
+  }
+
+  .line-card>>>.el-card__body {
+    padding: 16px;
   }
 
   .line-card-header {
@@ -958,36 +1303,54 @@
     align-items: center;
     justify-content: center;
     min-width: 40px;
-    padding: 2px 8px;
+    min-height: 24px;
+    padding: 2px 9px;
     border-radius: 4px;
-    background: #409eff;
+    background: var(--primary);
     color: #fff;
     font-size: 14px;
+    line-height: 1;
+    box-shadow: 0 6px 14px rgba(47, 128, 237, 0.22);
   }
 
   .line-title {
     flex: 1;
     font-size: 16px;
-    color: #303133;
+    color: var(--text-main);
+    min-width: 0;
+    overflow-wrap: anywhere;
   }
 
   .line-hint-error {
+    display: inline-flex;
+    align-items: center;
+    min-height: 22px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    background: #fff1f2;
     font-size: 12px;
-    color: #f56c6c;
+    color: var(--danger);
+    animation: hintBlink 1.8s ease-in-out infinite;
   }
 
   .line-error-msg {
-    color: #f56c6c;
-    padding: 8px;
-    background: #fef0f0;
-    border-radius: 4px;
+    color: var(--danger);
+    padding: 10px 12px;
+    background: #fff1f2;
+    border: 1px solid #ffd7dc;
+    border-radius: 6px;
     font-size: 13px;
+    animation: surfaceIn 0.2s ease both;
   }
 
   .line-empty {
-    color: #909399;
+    color: var(--text-soft);
     font-size: 14px;
-    padding: 8px;
+    padding: 28px 12px;
+    text-align: center;
+    border: 1px dashed var(--line-strong);
+    border-radius: 8px;
+    background: var(--surface-soft);
   }
 
   .points-stack {
@@ -1001,6 +1364,15 @@
     flex-direction: row;
     align-items: stretch;
     gap: 16px;
+    animation: rowRise 0.3s ease both;
+  }
+
+  .point-row:nth-child(2) {
+    animation-delay: 0.04s;
+  }
+
+  .point-row:nth-child(3) {
+    animation-delay: 0.08s;
   }
 
   .point-row .point-block {
@@ -1015,10 +1387,30 @@
   }
 
   .point-block {
-    padding: 12px;
-    border: 1px solid #ebeef5;
-    border-radius: 6px;
-    background: #fafafa;
+    position: relative;
+    padding: 14px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: linear-gradient(180deg, #ffffff 0%, #f9fbfd 100%);
+    box-shadow: 0 8px 20px rgba(34, 48, 68, 0.05);
+    transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+  }
+
+  .point-block::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 3px;
+    background: linear-gradient(90deg, var(--primary), #67c23a, #e6a23c);
+    opacity: 0.82;
+  }
+
+  .point-block:hover {
+    transform: translateY(-2px);
+    border-color: #bdd7f6;
+    box-shadow: 0 14px 28px rgba(34, 48, 68, 0.1);
   }
 
   .point-block-layout {
@@ -1039,8 +1431,9 @@
     flex-direction: row;
     align-items: flex-start;
     gap: 10px;
-    padding-left: 12px;
-    border-left: 1px solid #e4e7ed;
+    width: clamp(184px, 18vw, 236px);
+    padding-left: 14px;
+    border-left: 1px solid var(--line);
   }
 
   .seq-title-v {
@@ -1048,7 +1441,7 @@
     text-orientation: mixed;
     font-size: 13px;
     font-weight: 600;
-    color: #606266;
+    color: var(--text-soft);
     line-height: 1.4;
     white-space: nowrap;
     letter-spacing: 0.08em;
@@ -1062,6 +1455,7 @@
     gap: 6px;
     min-width: 0;
     flex: 1;
+    width: 100%;
   }
 
   /* 标签 / 冒号 / 数值分列对齐，避免长短不一 */
@@ -1070,15 +1464,22 @@
     grid-template-columns: 7em 0.65em 2ch;
     align-items: center;
     column-gap: 2px;
-    padding: 5px 10px;
+    padding: 6px 10px;
     font-size: 13px;
     line-height: 1.35;
-    color: #409eff;
-    border: 1px solid #d9ecff;
-    background: #ecf5ff;
+    color: #2468b4;
+    border: 1px solid #d6e8fb;
+    background: #eef7ff;
     border-radius: 4px;
     box-sizing: border-box;
     min-width: 0;
+    transition: border-color 0.16s ease, background-color 0.16s ease, transform 0.16s ease;
+  }
+
+  .seq-line:hover {
+    transform: translateX(2px);
+    border-color: #b9d8f8;
+    background: #f6fbff;
   }
 
   .seq-label {
@@ -1090,7 +1491,7 @@
   }
 
   .seq-sep {
-    color: #909399;
+    color: var(--text-soft);
     text-align: center;
   }
 
@@ -1098,6 +1499,7 @@
     text-align: right;
     font-weight: 600;
     font-variant-numeric: tabular-nums;
+    color: var(--text-main);
   }
 
   @media (max-width: 900px) {
@@ -1108,7 +1510,7 @@
     .point-seq-col {
       width: 100%;
       border-left: none;
-      border-top: 1px solid #e4e7ed;
+      border-top: 1px solid var(--line);
       padding-left: 0;
       padding-top: 12px;
       flex-direction: column;
@@ -1126,7 +1528,7 @@
     flex-wrap: wrap;
     align-items: center;
     gap: 8px;
-    margin-bottom: 8px;
+    margin-bottom: 10px;
   }
 
   .point-run-group {
@@ -1138,54 +1540,143 @@
 
   .point-code {
     font-weight: bold;
-    font-size: 16px;
-    color: #303133;
+    font-size: 17px;
+    color: var(--text-main);
     margin-right: 8px;
+    letter-spacing: 0;
+  }
+
+  .point-head>>>.el-tag {
+    border-radius: 4px;
+    font-weight: 600;
+  }
+
+  .point-head>>>.el-button {
+    transition: transform 0.16s ease, box-shadow 0.16s ease;
+  }
+
+  .point-head>>>.el-button:hover {
+    transform: translateY(-1px);
   }
 
   .summary {
     font-size: 14px;
-    color: #303133;
+    color: var(--text-main);
     line-height: 1.5;
-    margin-bottom: 10px;
+    margin-bottom: 12px;
+    padding: 9px 10px;
+    border-radius: 6px;
+    background: #f6f8fb;
+    border: 1px solid #edf1f6;
+    overflow-wrap: anywhere;
   }
 
   .desc-main>>>.el-descriptions__label {
     width: 132px;
+    color: var(--text-soft);
+    background: #f8fafc;
+  }
+
+  .desc-main>>>.el-descriptions__content {
+    color: var(--text-main);
+  }
+
+  .desc-main>>>.el-descriptions__cell {
+    transition: background-color 0.16s ease;
+  }
+
+  .desc-main>>>.el-descriptions__cell:hover {
+    background: #fbfdff;
   }
 
   .mono {
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-variant-numeric: tabular-nums;
   }
 
   .raw-frame {
     word-break: break-all;
+    overflow-wrap: anywhere;
   }
 
   .task-badge {
-    background: #67c23a;
+    background: var(--success);
+    box-shadow: 0 6px 14px rgba(47, 158, 68, 0.2);
   }
 
   .task-meta {
     margin-bottom: 12px;
     font-size: 13px;
-    color: #606266;
+    color: var(--text-soft);
+  }
+
+  .task-meta strong {
+    color: var(--text-main);
+    font-weight: 700;
   }
 
   .task-filter-form {
-    margin-bottom: 12px;
-    padding: 12px 12px 2px;
-    background: #fafafa;
-    border: 1px solid #ebeef5;
-    border-radius: 6px;
+    margin-bottom: 14px;
+    padding: 14px 14px 4px;
+    background: var(--surface-soft);
+    border: 1px solid var(--line);
+    border-radius: 8px;
   }
 
   .task-filter-form>>>.el-form-item {
     margin-bottom: 10px;
   }
 
+  .task-filter-form>>>.el-form-item__label {
+    color: var(--text-soft);
+  }
+
+  .task-filter-form>>>.el-input__inner,
+  .task-filter-form>>>.el-range-input {
+    transition: border-color 0.16s ease, box-shadow 0.16s ease;
+  }
+
+  .task-filter-form>>>.el-input__inner:focus {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(47, 128, 237, 0.12);
+  }
+
   .task-table {
     width: 100%;
+    border-radius: 8px;
+    overflow: hidden;
+  }
+
+  .task-table>>>.cell {
+    line-height: 1.45;
+  }
+
+  .task-table>>>.el-table__body-wrapper {
+    overflow-x: auto;
+  }
+
+  .task-table>>>.el-table__header th {
+    background: #f7fafc;
+    color: var(--text-soft);
+    font-weight: 600;
+  }
+
+  .task-table>>>.el-table__row {
+    transition: background-color 0.16s ease;
+  }
+
+  .task-table>>>.el-table__body tr:hover>td {
+    background: #f3f8ff;
+  }
+
+  .task-table>>>.el-table__fixed-right::before,
+  .task-table>>>.el-table__fixed::before {
+    background: var(--line);
+  }
+
+  .task-table>>>.el-tag {
+    border-radius: 4px;
+    font-weight: 600;
   }
 
   .task-pager {
@@ -1195,19 +1686,409 @@
     flex-wrap: wrap;
   }
 
+  .task-pager>>>.el-pagination {
+    white-space: normal;
+  }
+
   .work-position-badge {
-    background: #e6a23c;
+    background: var(--warning);
+    box-shadow: 0 6px 14px rgba(217, 119, 6, 0.2);
   }
 
   .work-position-card .line-card-header {
     flex-wrap: wrap;
   }
 
+  .carrier-management-form {
+    max-width: 520px;
+    padding: 4px 0;
+  }
+
   .btn-danger-text {
-    color: #f56c6c;
+    color: var(--danger);
+    transition: color 0.16s ease, transform 0.16s ease;
   }
 
   .btn-danger-text:hover {
-    color: #f78989;
+    color: #ff6b6f;
+    transform: translateY(-1px);
+  }
+
+  .app-container>>>.el-button {
+    border-radius: 6px;
+    transition: transform 0.16s ease, box-shadow 0.16s ease, border-color 0.16s ease;
+  }
+
+  .app-container>>>.el-button:hover {
+    transform: translateY(-1px);
+  }
+
+  .app-container>>>.el-button--primary {
+    background: var(--primary);
+    border-color: var(--primary);
+    box-shadow: 0 6px 14px rgba(47, 128, 237, 0.18);
+  }
+
+  .app-container>>>.el-dialog {
+    width: min(480px, calc(100vw - 32px)) !important;
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: 0 24px 60px rgba(34, 48, 68, 0.22);
+  }
+
+  .app-container>>>.el-dialog__header {
+    padding: 16px 20px 12px;
+    border-bottom: 1px solid var(--line);
+    background: #f8fbff;
+  }
+
+  .app-container>>>.el-dialog__body {
+    padding: 20px;
+  }
+
+  .app-container>>>.el-dialog__footer {
+    padding: 12px 20px 16px;
+    border-top: 1px solid var(--line);
+    background: #fbfdff;
+  }
+
+  @keyframes surfaceIn {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes rowRise {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes statusPulse {
+
+    0%,
+    100% {
+      box-shadow: 0 0 0 4px rgba(47, 158, 68, 0.12);
+    }
+
+    50% {
+      box-shadow: 0 0 0 7px rgba(47, 158, 68, 0.04);
+    }
+  }
+
+  @keyframes hintBlink {
+
+    0%,
+    100% {
+      opacity: 1;
+    }
+
+    50% {
+      opacity: 0.72;
+    }
+  }
+
+  @media (max-width: 1280px) {
+    .app-container {
+      padding: 18px 22px 28px;
+    }
+
+    .point-block-layout {
+      flex-direction: column;
+    }
+
+    .point-seq-col {
+      width: 100%;
+      border-left: none;
+      border-top: 1px solid var(--line);
+      padding-left: 0;
+      padding-top: 12px;
+    }
+
+    .seq-tags-v {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+
+  @media (max-width: 980px) {
+    .page-header {
+      align-items: flex-start;
+    }
+
+    .page-title {
+      min-width: 100%;
+    }
+
+    .page-meta {
+      width: 100%;
+      justify-content: flex-start;
+    }
+
+    .line-card-header {
+      align-items: flex-start;
+      flex-wrap: wrap;
+    }
+
+    .line-title {
+      flex-basis: calc(100% - 62px);
+    }
+
+    .line-hint-error {
+      margin-left: 50px;
+    }
+
+    .task-filter-form {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 0 12px;
+    }
+
+    .task-filter-form>>>.el-form-item {
+      display: flex;
+      flex-direction: column;
+      margin-right: 0;
+    }
+
+    .task-filter-form>>>.el-form-item__label {
+      float: none;
+      width: auto;
+      padding: 0 0 6px;
+      line-height: 1.2;
+      text-align: left;
+    }
+
+    .task-filter-form>>>.el-form-item__content {
+      display: block;
+      width: 100%;
+      line-height: normal;
+    }
+
+    .task-filter-form>>>.el-input,
+    .task-filter-form>>>.el-select,
+    .task-filter-form>>>.el-date-editor.el-input {
+      width: 100% !important;
+    }
+
+    .task-table>>>.el-table__header,
+    .task-table>>>.el-table__body {
+      min-width: 760px;
+    }
+  }
+
+  @media (max-width: 768px) {
+    .app-container {
+      padding: 14px;
+    }
+
+    .page-title {
+      font-size: 19px;
+    }
+
+    .line-tabs>>>.el-tabs__item {
+      padding: 0 12px;
+    }
+
+    .line-card>>>.el-card__body {
+      padding: 12px;
+    }
+
+    .line-badge {
+      min-width: 36px;
+      min-height: 22px;
+      font-size: 13px;
+    }
+
+    .line-title {
+      flex-basis: 100%;
+      order: 2;
+      font-size: 15px;
+    }
+
+    .line-hint-error {
+      order: 3;
+      margin-left: 0;
+    }
+
+    .point-block {
+      padding: 12px;
+    }
+
+    .point-head {
+      align-items: flex-start;
+    }
+
+    .point-code {
+      width: 100%;
+      margin-right: 0;
+      font-size: 16px;
+    }
+
+    .point-run-group {
+      width: 100%;
+    }
+
+    .seq-tags-v {
+      grid-template-columns: 1fr;
+    }
+
+    .seq-line {
+      grid-template-columns: minmax(0, 1fr) 0.65em 2ch;
+    }
+
+    .task-filter-form {
+      grid-template-columns: 1fr;
+      padding: 12px 12px 2px;
+    }
+
+    .task-filter-form>>>.el-form-item:last-child .el-form-item__content {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .task-filter-form>>>.el-form-item:last-child .el-button {
+      flex: 1 1 112px;
+      margin-left: 0;
+    }
+
+    .task-pager {
+      justify-content: flex-start;
+    }
+
+    .task-pager>>>.el-pagination {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .app-container>>>.el-dialog__body {
+      padding: 16px;
+    }
+  }
+
+  @media (max-width: 560px) {
+    .app-container {
+      padding: 10px;
+    }
+
+    .page-header {
+      gap: 10px;
+      margin-bottom: 12px;
+      padding-bottom: 12px;
+    }
+
+    .page-title {
+      font-size: 18px;
+      line-height: 1.35;
+    }
+
+    .meta-item {
+      width: 100%;
+      justify-content: flex-start;
+      font-size: 12px;
+    }
+
+    .line-tabs {
+      margin-bottom: 12px;
+    }
+
+    .line-tabs>>>.el-tabs__item {
+      height: 32px;
+      line-height: 32px;
+      padding: 0 10px;
+      font-size: 13px;
+    }
+
+    .line-card>>>.el-card__header {
+      padding: 10px 12px;
+    }
+
+    .line-card>>>.el-card__body {
+      padding: 10px;
+    }
+
+    .points-stack,
+    .point-row {
+      gap: 10px;
+    }
+
+    .summary {
+      font-size: 13px;
+    }
+
+    .desc-main>>>.el-descriptions__body,
+    .desc-main>>>.el-descriptions__table,
+    .desc-main>>>tbody,
+    .desc-main>>>tr,
+    .desc-main>>>td {
+      display: block;
+      width: 100% !important;
+      box-sizing: border-box;
+    }
+
+    .desc-main>>>.el-descriptions__label {
+      display: block;
+      width: 100%;
+      padding: 8px 10px 4px;
+      border-right: 0;
+    }
+
+    .desc-main>>>.el-descriptions__content {
+      display: block;
+      width: 100%;
+      padding: 4px 10px 8px;
+    }
+
+    .task-table>>>.el-table__header,
+    .task-table>>>.el-table__body {
+      min-width: 680px;
+    }
+
+    .task-pager>>>.el-pagination .el-pagination__jump {
+      margin-left: 0;
+    }
+
+    .app-container>>>.el-dialog {
+      width: calc(100vw - 20px) !important;
+      margin-top: 8vh !important;
+    }
+
+    .app-container>>>.el-dialog__header,
+    .app-container>>>.el-dialog__body,
+    .app-container>>>.el-dialog__footer {
+      padding-left: 14px;
+      padding-right: 14px;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+
+    .line-card,
+    .point-row,
+    .line-hint-error,
+    .meta-item::before {
+      animation: none;
+    }
+
+    .point-block,
+    .seq-line,
+    .app-container>>>.el-button,
+    .btn-danger-text {
+      transition: none;
+    }
   }
 </style>

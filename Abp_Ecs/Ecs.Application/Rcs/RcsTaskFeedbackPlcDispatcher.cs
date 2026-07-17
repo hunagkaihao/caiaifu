@@ -92,7 +92,7 @@ public class RcsTaskFeedbackPlcDispatcher : IRcsTaskFeedbackPlcDispatcher
 
             _logger.LogWarning(
                 "RCS 回馈帧未发出（该点位长连接未建立或已断开） Point={Point} Method={Method} TableHex={Table} Payload={Payload} ByteLen={Len}",
-                pointCode,
+                AgvPlcPointCodes.ToLogDisplay(pointCode),
                 method,
                 hex,
                 sentDisplay,
@@ -102,7 +102,7 @@ public class RcsTaskFeedbackPlcDispatcher : IRcsTaskFeedbackPlcDispatcher
 
         _logger.LogInformation(
             "RCS 回馈已经长连接下发 PLC Point={Point} Method={Method} TableHex={Table} Payload={Payload} RobotTaskCode={Task}",
-            pointCode,
+            AgvPlcPointCodes.ToLogDisplay(pointCode),
             method,
             hex,
             sentDisplay,

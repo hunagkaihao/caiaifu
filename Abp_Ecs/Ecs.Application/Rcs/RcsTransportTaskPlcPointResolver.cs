@@ -84,8 +84,8 @@ public class RcsTransportTaskPlcPointResolver : ITransientDependency
                 "搬运任务未配置 PLC 点位 TaskType={TaskType} Id={TaskId} Source={Source} Target={Target}",
                 taskType,
                 taskId,
-                task.SourcePointCode,
-                task.TargetPointCode);
+                AgvPlcPointCodes.ToLogDisplay(task.SourcePointCode),
+                AgvPlcPointCodes.ToLogDisplay(task.TargetPointCode));
             return null;
         }
 
@@ -94,7 +94,7 @@ public class RcsTransportTaskPlcPointResolver : ITransientDependency
             _logger.LogWarning(
                 "搬运任务 PLC 点位编码无效 TaskType={TaskType} Point={Point} Id={TaskId}",
                 taskType,
-                pointCode,
+                AgvPlcPointCodes.ToLogDisplay(pointCode),
                 taskId);
             return null;
         }

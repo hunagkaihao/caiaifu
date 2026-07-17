@@ -50,7 +50,10 @@ public class AgvPlcRedisStore : ISingletonDependency
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "读取 Redis 点位快照失败 {Point}", pointCode);
+            _logger.LogWarning(
+                ex,
+                "读取 Redis 点位快照失败 {Point}",
+                AgvPlcPointCodes.ToLogDisplay(pointCode));
             return null;
         }
     }
@@ -111,12 +114,18 @@ public class AgvPlcRedisStore : ISingletonDependency
             }
             catch (Exception ex)
             {
-                _logger.LogDebug(ex, "移除 Redis 旧英文字段名失败（可忽略） {Point}", snapshot.PointCode);
+                _logger.LogDebug(
+                    ex,
+                    "移除 Redis 旧英文字段名失败（可忽略） {Point}",
+                    AgvPlcPointCodes.ToLogDisplay(snapshot.PointCode));
             }
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "写入 Redis 点位快照失败 {Point}", snapshot.PointCode);
+            _logger.LogWarning(
+                ex,
+                "写入 Redis 点位快照失败 {Point}",
+                AgvPlcPointCodes.ToLogDisplay(snapshot.PointCode));
         }
     }
 

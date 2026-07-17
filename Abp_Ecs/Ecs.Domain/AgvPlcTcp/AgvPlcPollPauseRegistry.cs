@@ -24,7 +24,10 @@ public class AgvPlcPollPauseRegistry : IAgvPlcPollPauseRegistry, ISingletonDepen
         }
 
         var count = _holdCounts.AddOrUpdate(key, 1, (_, c) => c + 1);
-        _logger.LogDebug("AgvPlc 暂停读状态轮询 Hold Point={Point} Count={Count}", key, count);
+        _logger.LogDebug(
+            "AgvPlc 暂停读状态轮询 Hold Point={Point} Count={Count}",
+            AgvPlcPointCodes.ToLogDisplay(key),
+            count);
     }
 
     public void Release(string pointCode)
@@ -47,7 +50,9 @@ public class AgvPlcPollPauseRegistry : IAgvPlcPollPauseRegistry, ISingletonDepen
             {
                 if (_holdCounts.TryRemove(key, out _))
                 {
-                    _logger.LogDebug("AgvPlc 恢复读状态轮询 Release Point={Point}", key);
+                    _logger.LogDebug(
+                        "AgvPlc 恢复读状态轮询 Release Point={Point}",
+                        AgvPlcPointCodes.ToLogDisplay(key));
                 }
 
                 return;
@@ -55,7 +60,10 @@ public class AgvPlcPollPauseRegistry : IAgvPlcPollPauseRegistry, ISingletonDepen
 
             if (_holdCounts.TryUpdate(key, current - 1, current))
             {
-                _logger.LogDebug("AgvPlc 暂停读状态轮询 Release Point={Point} Count={Count}", key, current - 1);
+                _logger.LogDebug(
+                    "AgvPlc 暂停读状态轮询 Release Point={Point} Count={Count}",
+                    AgvPlcPointCodes.ToLogDisplay(key),
+                    current - 1);
                 return;
             }
         }

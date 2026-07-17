@@ -17,7 +17,7 @@ public class AgvTransportTaskGetListInput
     /// <summary>终点点位编码，如 O1C。</summary>
     public string? TargetPointCode { get; set; }
 
-    /// <summary>任务状态筛选：完成 / 未完成；留空表示不限。</summary>
+    /// <summary>任务状态筛选：支持完成、未完成或具体状态值；留空表示不限。</summary>
     public string? TaskStatus { get; set; }
 
     /// <summary>创建时间起始（含）。</summary>

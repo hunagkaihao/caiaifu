@@ -128,7 +128,7 @@ public class AgvPlcSendReadPollSender : IAgvPlcSendReadPollSender
                 okCount++;
                 _logger.LogInformation(
                     "接口触发 AgvPlc 读状态 Point={Point} Target={Target} Payload={Payload}（已写入该 TCP 连接的发送流）",
-                    workerPoint,
+                    AgvPlcPointCodes.ToLogDisplay(workerPoint),
                     target,
                     AgvPlcFrameParser.ToDisplayHexString(payload));
                 results.Add(new AgvPlcSendReadPollPointResult

@@ -107,7 +107,7 @@ public class RcsTaskFeedbackPlcContinueBackgroundRunner : IRcsTaskFeedbackPlcCon
             expectedDisplay,
             work.RobotTaskCode);
         Console.WriteLine(
-            $"[RCS 回馈] method={work.Method} 后台等待 {work.PointCode} 应答 {expectedDisplay}（每 {CommandResendIntervalSeconds}s 重发指令），任务号={work.RobotTaskCode}");
+            $"[RCS 回馈] method={work.Method} 后台等待 {AgvPlcPointCodes.ToLogDisplay(work.PointCode)} 应答 {expectedDisplay}（每 {CommandResendIntervalSeconds}s 重发指令），任务号={work.RobotTaskCode}");
     }
 
     public void CancelByRobotTaskCode(string robotTaskCode)
@@ -166,11 +166,11 @@ public class RcsTaskFeedbackPlcContinueBackgroundRunner : IRcsTaskFeedbackPlcCon
                         "RCS 回馈 {Method} 等待 PLC 应答超过 {Sec}s，已重发指令 Point={Point} Payload={Payload} RobotTaskCode={TaskCode}",
                         job.Method,
                         CommandResendIntervalSeconds,
-                        job.PointCode,
+                        AgvPlcPointCodes.ToLogDisplay(job.PointCode),
                         payloadDisplay,
                         job.RobotTaskCode);
                     Console.WriteLine(
-                        $"[RCS 回馈] method={job.Method} 等待超过 {CommandResendIntervalSeconds}s，重发指令 {payloadDisplay} → {job.PointCode}");
+                        $"[RCS 回馈] method={job.Method} 等待超过 {CommandResendIntervalSeconds}s，重发指令 {payloadDisplay} → {AgvPlcPointCodes.ToLogDisplay(job.PointCode)}");
                 }
                 else
                 {
@@ -178,7 +178,7 @@ public class RcsTaskFeedbackPlcContinueBackgroundRunner : IRcsTaskFeedbackPlcCon
                         "RCS 回馈 {Method} 等待 PLC 应答超过 {Sec}s，重发指令失败（长连接未建立或已断开） Point={Point} Payload={Payload} RobotTaskCode={TaskCode}",
                         job.Method,
                         CommandResendIntervalSeconds,
-                        job.PointCode,
+                        AgvPlcPointCodes.ToLogDisplay(job.PointCode),
                         payloadDisplay,
                         job.RobotTaskCode);
                 }
@@ -216,7 +216,7 @@ public class RcsTaskFeedbackPlcContinueBackgroundRunner : IRcsTaskFeedbackPlcCon
             _logger.LogInformation(
                 "RCS 回馈 {Method} 后台等待结束，已恢复该点位读状态轮询 Point={Point} RobotTaskCode={TaskCode}",
                 job.Method,
-                job.PointCode,
+                AgvPlcPointCodes.ToLogDisplay(job.PointCode),
                 job.RobotTaskCode);
         }
     }
@@ -229,7 +229,7 @@ public class RcsTaskFeedbackPlcContinueBackgroundRunner : IRcsTaskFeedbackPlcCon
         _logger.LogInformation(
             "RCS 回馈 {Method} 后台收到期望 PLC 应答 Point={Point} Frame={Frame}，调用 RCS 继续执行 RobotTaskCode={TaskCode}",
             job.Method,
-            job.PointCode,
+            AgvPlcPointCodes.ToLogDisplay(job.PointCode),
             snap.RawFrameHex,
             job.RobotTaskCode);
         Console.WriteLine(

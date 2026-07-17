@@ -3,7 +3,7 @@ using System;
 namespace Ecs.AgvPlc;
 
 /// <summary>
-/// 搬运任务列表状态筛选：完成 / 未完成。
+/// 搬运任务列表聚合状态筛选：完成 / 未完成。具体状态由领域状态清单校验。
 /// </summary>
 public static class AgvTransportTaskStatusFilter
 {

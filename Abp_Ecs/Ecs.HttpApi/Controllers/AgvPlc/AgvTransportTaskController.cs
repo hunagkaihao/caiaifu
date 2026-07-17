@@ -61,4 +61,22 @@ public class AgvTransportTaskController : EcsController
     {
         return _agvTransportTaskAppService.CancelAsync(id, input, cancellationToken);
     }
+
+    /// <summary>恢复已取消任务对应的起点和终点区域。</summary>
+    [HttpPost("{id:guid}/resume-zones")]
+    public Task<ResponseDto> ResumeZonesAsync(
+        [FromRoute] Guid id,
+        CancellationToken cancellationToken)
+    {
+        return _agvTransportTaskAppService.ResumeZonesAsync(id, cancellationToken);
+    }
+
+    /// <summary>PLC 起终点连续三帧健康后，人工恢复故障暂停区域。</summary>
+    [HttpPost("{id:guid}/resume-fault-zones")]
+    public Task<ResponseDto> ResumeFaultZonesAsync(
+        [FromRoute] Guid id,
+        CancellationToken cancellationToken)
+    {
+        return _agvTransportTaskAppService.ResumeFaultZonesAsync(id, cancellationToken);
+    }
 }

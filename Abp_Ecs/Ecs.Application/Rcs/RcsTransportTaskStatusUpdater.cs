@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using Ecs.AgvPlc;
 using Ecs.AgvPlcTcp;
 using Microsoft.Extensions.Logging;
 using Volo.Abp.DependencyInjection;
@@ -32,15 +33,18 @@ public class RcsTransportTaskStatusUpdater : ITransientDependency, IRcsTransport
 
     private readonly IRepository<AgvTransportTask, Guid> _taskRepository;
     private readonly IUnitOfWorkManager _unitOfWorkManager;
+    private readonly IAgvTaskZoneOperationLock _operationLock;
     private readonly ILogger<RcsTransportTaskStatusUpdater> _logger;
 
     public RcsTransportTaskStatusUpdater(
         IRepository<AgvTransportTask, Guid> taskRepository,
         IUnitOfWorkManager unitOfWorkManager,
+        IAgvTaskZoneOperationLock operationLock,
         ILogger<RcsTransportTaskStatusUpdater> logger)
     {
         _taskRepository = taskRepository;
         _unitOfWorkManager = unitOfWorkManager;
+        _operationLock = operationLock;
         _logger = logger;
     }
 
@@ -64,6 +68,8 @@ public class RcsTransportTaskStatusUpdater : ITransientDependency, IRcsTransport
             return;
         }
 
+        using var taskLock = await _operationLock.LockTaskAsync(taskId, cancellationToken)
+            .ConfigureAwait(false);
         using var uow = _unitOfWorkManager.Begin(requiresNew: true);
         var task = await _taskRepository.FindAsync(taskId, cancellationToken: cancellationToken)
             .ConfigureAwait(false);
@@ -77,12 +83,13 @@ public class RcsTransportTaskStatusUpdater : ITransientDependency, IRcsTransport
             return;
         }
 
-        if (string.Equals(task.Status, AgvTransportTaskStatuses.Cancelled, StringComparison.Ordinal))
+        if (AgvTransportTaskStatuses.IsCancellationState(task.Status))
         {
             _logger.LogInformation(
-                "搬运任务已取消，忽略 RCS 回调状态更新 method={Method} Id={TaskId}",
+                "搬运任务正在取消或已取消，忽略 RCS 回调状态更新 method={Method} Id={TaskId} Status={Status}",
                 rcsMethod,
-                taskId);
+                taskId,
+                task.Status);
             await uow.CompleteAsync(cancellationToken).ConfigureAwait(false);
             return;
         }

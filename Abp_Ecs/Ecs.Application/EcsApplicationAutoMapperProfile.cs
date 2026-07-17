@@ -16,23 +16,27 @@ public class EcsApplicationAutoMapperProfile : Profile
         /* You can configure your AutoMapper mapping configuration here.
          * Alternatively, you can split your mapping configurations
          * into multiple profile classes for a better organization. */
-         CreateMap<MonitorValue, MonitorDto>();
-         CreateMap<AgvTransportTask, AgvTransportTaskDto>();
-         CreateMap<StationInfo, StationInfoDto>();
-         CreateMap<SqliteLogItem, LogDto>();
-         CreateMap<StationDto, Station>();
-         CreateMap<Station, StationDto>();
-         CreateMap<Step, StepDto>();
-         CreateMap<StepDto, Step>();
-         CreateMap<StepPara, StepParaDto>();
-         CreateMap<StepParaDto, StepPara>();
-         CreateMap<Variable, VariableDto>();
-         CreateMap<VariableDto, Variable>();
-         CreateMap<StationStep, StationStepDto>();
-         CreateMap<StationStepDto, StationStep>();
-         CreateMap<StationStepParaLink, StationStepParaLinkDto>();
-         CreateMap<StationStepParaLinkDto, StationStepParaLink>();
-         CreateMap<WorkPosition, WorkPositionDto>();
-         CreateMap<WorkPositionDto, WorkPosition>();
+        CreateMap<MonitorValue, MonitorDto>();
+        CreateMap<AgvTransportTask, AgvTransportTaskDto>()
+            .ForMember(destination => destination.CanResumeZones,
+                options => options.MapFrom(source => source.CanResumeZones))
+            .ForMember(destination => destination.CanResumeFaultZones,
+                options => options.MapFrom(source => source.CanResumeFaultZones));
+        CreateMap<StationInfo, StationInfoDto>();
+        CreateMap<SqliteLogItem, LogDto>();
+        CreateMap<StationDto, Station>();
+        CreateMap<Station, StationDto>();
+        CreateMap<Step, StepDto>();
+        CreateMap<StepDto, Step>();
+        CreateMap<StepPara, StepParaDto>();
+        CreateMap<StepParaDto, StepPara>();
+        CreateMap<Variable, VariableDto>();
+        CreateMap<VariableDto, Variable>();
+        CreateMap<StationStep, StationStepDto>();
+        CreateMap<StationStepDto, StationStep>();
+        CreateMap<StationStepParaLink, StationStepParaLinkDto>();
+        CreateMap<StationStepParaLinkDto, StationStepParaLink>();
+        CreateMap<WorkPosition, WorkPositionDto>();
+        CreateMap<WorkPositionDto, WorkPosition>();
     }
 }

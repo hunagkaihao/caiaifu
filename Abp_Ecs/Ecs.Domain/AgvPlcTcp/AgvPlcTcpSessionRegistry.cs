@@ -25,7 +25,9 @@ public class AgvPlcTcpSessionRegistry : IAgvPlcTcpSessionRegistry, ISingletonDep
         }
 
         _senders[pointCode.Trim()] = sendAsync;
-        _logger.LogDebug("AgvPlc 长连接已登记发送器 Point={Point}", pointCode);
+        _logger.LogDebug(
+            "AgvPlc 长连接已登记发送器 Point={Point}",
+            AgvPlcPointCodes.ToLogDisplay(pointCode));
     }
 
     public void Unregister(string pointCode)
@@ -36,7 +38,9 @@ public class AgvPlcTcpSessionRegistry : IAgvPlcTcpSessionRegistry, ISingletonDep
         }
 
         _senders.TryRemove(pointCode.Trim(), out _);
-        _logger.LogDebug("AgvPlc 长连接已注销发送器 Point={Point}", pointCode);
+        _logger.LogDebug(
+            "AgvPlc 长连接已注销发送器 Point={Point}",
+            AgvPlcPointCodes.ToLogDisplay(pointCode));
     }
 
     public async Task<bool> TrySendAsync(string pointCode, byte[] frame, CancellationToken cancellationToken = default)
@@ -48,7 +52,9 @@ public class AgvPlcTcpSessionRegistry : IAgvPlcTcpSessionRegistry, ISingletonDep
 
         if (!_senders.TryGetValue(pointCode.Trim(), out var send))
         {
-            _logger.LogWarning("AgvPlc 该点位无活动长连接，无法发送 Point={Point}", pointCode);
+            _logger.LogWarning(
+                "AgvPlc 该点位无活动长连接，无法发送 Point={Point}",
+                AgvPlcPointCodes.ToLogDisplay(pointCode));
             return false;
         }
 
@@ -59,7 +65,10 @@ public class AgvPlcTcpSessionRegistry : IAgvPlcTcpSessionRegistry, ISingletonDep
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "AgvPlc 经长连接发送失败 Point={Point}", pointCode);
+            _logger.LogWarning(
+                ex,
+                "AgvPlc 经长连接发送失败 Point={Point}",
+                AgvPlcPointCodes.ToLogDisplay(pointCode));
             return false;
         }
     }

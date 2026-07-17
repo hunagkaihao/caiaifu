@@ -131,8 +131,8 @@ public class AgvPlcTaskDispatchService : ISingletonDependency
                         "取消任务抑制已释放 Line={Line} Edge={Edge} {From}->{To}",
                         lineKey,
                         edge.Code,
-                        edge.From,
-                        edge.To);
+                        AgvPlcPointCodes.ToLogDisplay(edge.From),
+                        AgvPlcPointCodes.ToLogDisplay(edge.To));
                 }
                 else
                 {
@@ -290,8 +290,8 @@ public class AgvPlcTaskDispatchService : ISingletonDependency
             _logger.LogInformation(
                 "边匹配已下发 RCS {Edge} {FromPoint}->{ToPoint} {TaskType} {FromSite}->{ToSite} RobotTaskCode={RobotTaskCode} Id={Id}",
                 edgeCode,
-                fromPointCode,
-                toPointCode,
+                AgvPlcPointCodes.ToLogDisplay(fromPointCode),
+                AgvPlcPointCodes.ToLogDisplay(toPointCode),
                 taskType,
                 fromSite,
                 toSite,
@@ -303,8 +303,8 @@ public class AgvPlcTaskDispatchService : ISingletonDependency
             _logger.LogWarning(
                 "边匹配 RCS 下发失败 {Edge} {FromPoint}->{ToPoint} {TaskType} RobotTaskCode={RobotTaskCode} Code={Code} Message={Message}",
                 edgeCode,
-                fromPointCode,
-                toPointCode,
+                AgvPlcPointCodes.ToLogDisplay(fromPointCode),
+                AgvPlcPointCodes.ToLogDisplay(toPointCode),
                 taskType,
                 robotTaskCode,
                 rcsResult?.Code,

@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Ecs.AgvPlc;
 using Ecs.AgvPlcTcp;
 using Microsoft.Extensions.Logging;
 using Volo.Abp.Domain.Repositories;
@@ -15,19 +16,22 @@ namespace Ecs.Rcs;
 public class RcsTaskFeedbackQuendHandler : IRcsTaskFeedbackQuendHandler
 {
     private readonly IRepository<AgvTransportTask, Guid> _taskRepository;
-    private readonly AgvPlcRedisStore _redisStore;
+    private readonly IAgvTaskCancellationPlcState _plcState;
     private readonly IUnitOfWorkManager _unitOfWorkManager;
+    private readonly IAgvTaskZoneOperationLock _operationLock;
     private readonly ILogger<RcsTaskFeedbackQuendHandler> _logger;
 
     public RcsTaskFeedbackQuendHandler(
         IRepository<AgvTransportTask, Guid> taskRepository,
-        AgvPlcRedisStore redisStore,
+        IAgvTaskCancellationPlcState plcState,
         IUnitOfWorkManager unitOfWorkManager,
+        IAgvTaskZoneOperationLock operationLock,
         ILogger<RcsTaskFeedbackQuendHandler> logger)
     {
         _taskRepository = taskRepository;
-        _redisStore = redisStore;
+        _plcState = plcState;
         _unitOfWorkManager = unitOfWorkManager;
+        _operationLock = operationLock;
         _logger = logger;
     }
 
@@ -49,6 +53,8 @@ public class RcsTaskFeedbackQuendHandler : IRcsTaskFeedbackQuendHandler
             return;
         }
 
+        using var taskLock = await _operationLock.LockTaskAsync(taskId, cancellationToken)
+            .ConfigureAwait(false);
         AgvTransportTask? task;
         using (var uow = _unitOfWorkManager.Begin(requiresNew: true))
         {
@@ -68,8 +74,8 @@ public class RcsTaskFeedbackQuendHandler : IRcsTaskFeedbackQuendHandler
                     "{Method} 任务结束回调 Id={TaskId} Source={Source} Target={Target} Edge={Edge} Status={Status}",
                     method,
                     taskId,
-                    task.SourcePointCode,
-                    task.TargetPointCode,
+                    AgvPlcPointCodes.ToLogDisplay(task.SourcePointCode),
+                    AgvPlcPointCodes.ToLogDisplay(task.TargetPointCode),
                     task.EdgeCode,
                     task.Status);
             }
@@ -82,25 +88,27 @@ public class RcsTaskFeedbackQuendHandler : IRcsTaskFeedbackQuendHandler
             return;
         }
 
-        ReleasePointRunState(task.SourcePointCode, method);
-        if (!string.Equals(task.SourcePointCode, task.TargetPointCode, StringComparison.OrdinalIgnoreCase))
+        if (AgvTransportTaskStatuses.IsCancellationState(task.Status) ||
+            task.SourceZonePaused ||
+            task.TargetZonePaused)
         {
-            ReleasePointRunState(task.TargetPointCode, method);
-        }
-    }
-
-    private void ReleasePointRunState(string pointCode, string method)
-    {
-        if (string.IsNullOrWhiteSpace(pointCode))
-        {
+            _logger.LogInformation(
+                "{Method} 回调保留点位运行态锁定 Id={TaskId} Status={Status} SourceZonePaused={SourceZonePaused} TargetZonePaused={TargetZonePaused}",
+                method,
+                task.Id,
+                task.Status,
+                task.SourceZonePaused,
+                task.TargetZonePaused);
             return;
         }
 
-        _redisStore.SetRunState(pointCode.Trim(), AgvPlcRunStates.Available);
+        _plcState.ReleaseRunState(task);
         _logger.LogInformation(
-            "{Method} 已释放点位运行态锁定 {Point}（RunState=0 可用）",
+            "{Method} 已释放任务起终点运行态锁定 Id={TaskId} Source={Source} Target={Target}",
             method,
-            pointCode);
+            task.Id,
+            AgvPlcPointCodes.ToLogDisplay(task.SourcePointCode),
+            AgvPlcPointCodes.ToLogDisplay(task.TargetPointCode));
     }
 
     /// <summary>支持带连字符 Guid 与下发时使用的 32 位 N 格式。</summary>

@@ -29,6 +29,9 @@ namespace Ecs.Migrations
                     b.Property<DateTime>("CreationTime")
                         .HasColumnType("datetime(6)");
 
+                    b.Property<DateTime?>("CancelledAt")
+                        .HasColumnType("datetime(6)");
+
                     b.Property<string>("EdgeCode")
                         .IsRequired()
                         .HasMaxLength(16)
@@ -39,6 +42,13 @@ namespace Ecs.Migrations
                         .HasMaxLength(16)
                         .HasColumnType("varchar(16)");
 
+                    b.Property<string>("SourceZoneCode")
+                        .HasMaxLength(32)
+                        .HasColumnType("varchar(32)");
+
+                    b.Property<bool>("SourceZonePaused")
+                        .HasColumnType("tinyint(1)");
+
                     b.Property<string>("Status")
                         .HasMaxLength(32)
                         .HasColumnType("varchar(32)");
@@ -47,6 +57,16 @@ namespace Ecs.Migrations
                         .IsRequired()
                         .HasMaxLength(16)
                         .HasColumnType("varchar(16)");
+
+                    b.Property<string>("TargetZoneCode")
+                        .HasMaxLength(32)
+                        .HasColumnType("varchar(32)");
+
+                    b.Property<bool>("TargetZonePaused")
+                        .HasColumnType("tinyint(1)");
+
+                    b.Property<DateTime?>("ZonesResumedAt")
+                        .HasColumnType("datetime(6)");
 
                     b.HasKey("Id");
 

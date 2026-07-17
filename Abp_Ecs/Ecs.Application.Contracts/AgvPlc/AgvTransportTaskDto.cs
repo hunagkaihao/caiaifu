@@ -17,5 +17,17 @@ public class AgvTransportTaskDto
 
     public string Status { get; set; } = string.Empty;
 
+    public string SourceZoneCode { get; set; } = string.Empty;
+
+    public string TargetZoneCode { get; set; } = string.Empty;
+
+    public bool SourceZonePaused { get; set; }
+
+    public bool TargetZonePaused { get; set; }
+
+    public bool CanResumeZones { get; set; }
+
+    public bool CanResumeFaultZones { get; set; }
+
     public DateTime CreationTime { get; set; }
 }

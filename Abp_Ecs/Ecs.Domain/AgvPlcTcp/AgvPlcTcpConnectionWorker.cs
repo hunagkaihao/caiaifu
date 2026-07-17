@@ -22,6 +22,7 @@ public class AgvPlcTcpConnectionWorker : ITransientDependency
     private readonly IOptionsMonitor<AgvPlcTcpOptions> _optionsMonitor;
     private readonly IAgvPlcTcpSessionRegistry _sessionRegistry;
     private readonly IAgvPlcPollPauseRegistry _pollPauseRegistry;
+    private readonly IAgvPlcPointHealthRegistry _healthRegistry;
     private readonly IServiceScopeFactory _serviceScopeFactory;
     private readonly ILogger<AgvPlcTcpConnectionWorker> _logger;
 
@@ -30,6 +31,7 @@ public class AgvPlcTcpConnectionWorker : ITransientDependency
         IOptionsMonitor<AgvPlcTcpOptions> optionsMonitor,
         IAgvPlcTcpSessionRegistry sessionRegistry,
         IAgvPlcPollPauseRegistry pollPauseRegistry,
+        IAgvPlcPointHealthRegistry healthRegistry,
         IServiceScopeFactory serviceScopeFactory,
         ILogger<AgvPlcTcpConnectionWorker> logger)
     {
@@ -37,6 +39,7 @@ public class AgvPlcTcpConnectionWorker : ITransientDependency
         _optionsMonitor = optionsMonitor;
         _sessionRegistry = sessionRegistry;
         _pollPauseRegistry = pollPauseRegistry;
+        _healthRegistry = healthRegistry;
         _serviceScopeFactory = serviceScopeFactory;
         _logger = logger;
     }
@@ -44,6 +47,7 @@ public class AgvPlcTcpConnectionWorker : ITransientDependency
     public async Task RunAsync(string pointCode, CancellationToken ct)
     {
         var buffer = new List<byte>();
+        var pointDisplay = AgvPlcPointCodes.ToLogDisplay(pointCode);
         string? lastEndpoint = null;
 
         while (!ct.IsCancellationRequested)
@@ -51,6 +55,7 @@ public class AgvPlcTcpConnectionWorker : ITransientDependency
             var opts = _optionsMonitor.CurrentValue;
             if (!opts.Enabled)
             {
+                _healthRegistry.MarkDisconnected(pointCode);
                 _redisStore.MergeProtocolFieldsFromPlcFrame(pointCode, ReadOnlySpan<byte>.Empty, string.Empty, false, "模块已禁用");
                 await Task.Delay(1000, ct).ConfigureAwait(false);
                 continue;
@@ -58,7 +63,8 @@ public class AgvPlcTcpConnectionWorker : ITransientDependency
 
             if (!opts.TryGetEndpoint(pointCode, out var ep))
             {
-                _logger.LogWarning("点位 {Point} 未配置 TCP 地址", pointCode);
+                _healthRegistry.MarkDisconnected(pointCode);
+                _logger.LogWarning("点位 {Point} 未配置 TCP 地址", pointDisplay);
                 _redisStore.MergeProtocolFieldsFromPlcFrame(pointCode, ReadOnlySpan<byte>.Empty, string.Empty, false, "未配置 Endpoints");
                 await Task.Delay(opts.ReconnectDelayMs, ct).ConfigureAwait(false);
                 continue;
@@ -67,7 +73,7 @@ public class AgvPlcTcpConnectionWorker : ITransientDependency
             var endpointKey = $"{ep.Host}:{ep.Port}";
             if (lastEndpoint != endpointKey)
             {
-                _logger.LogInformation("点位 {Point} 连接目标 {Endpoint}", pointCode, endpointKey);
+                _logger.LogInformation("点位 {Point} 连接目标 {Endpoint}", pointDisplay, endpointKey);
                 lastEndpoint = endpointKey;
             }
 
@@ -122,7 +128,7 @@ public class AgvPlcTcpConnectionWorker : ITransientDependency
                             !string.Equals(ep2.Host, ep.Host, StringComparison.Ordinal) ||
                             ep2.Port != ep.Port)
                         {
-                            _logger.LogInformation("点位 {Point} 地址已变更，重连", pointCode);
+                            _logger.LogInformation("点位 {Point} 地址已变更，重连", pointDisplay);
                             break;
                         }
 
@@ -161,7 +167,7 @@ public class AgvPlcTcpConnectionWorker : ITransientDependency
                             {
                                 _logger.LogWarning(
                                     "AgvPlc 收帧过短（需至少 1 字节以解析状态位）{Point} Len={Len} Frame={Hex}",
-                                    pointCode, frame.Length, hex);
+                                    pointDisplay, frame.Length, hex);
                                 continue;
                             }
 
@@ -170,7 +176,7 @@ public class AgvPlcTcpConnectionWorker : ITransientDependency
                             var activeSummary = AgvPlcFrameParser.FormatPlcThirdByteStatusForLog(statusByte);
                             _logger.LogInformation(
                                 "AgvPlc 读PLC应答 {Point}（查询为 0x01）整帧={Frame} 第1字节=0x{StatusByte:X2} 二进制={StatusBinary} 位为1={ActiveSummary}",
-                                pointCode,
+                                pointDisplay,
                                 hex,
                                 statusByte,
                                 statusBin,
@@ -183,20 +189,21 @@ public class AgvPlcTcpConnectionWorker : ITransientDependency
                                 var reqPlace = AgvPlcFrameParser.GetThirdByteBit(taskByte, 2);
                                 _logger.LogInformation(
                                     "AgvPlc 读PLC应答 {Point} 第2字节=0x{TaskByte:X2} 序号9请求取货任务激活={ReqPick} 序号10请求放货任务激活={ReqPlace}",
-                                    pointCode,
+                                    pointDisplay,
                                     taskByte,
                                     reqPick,
                                     reqPlace);
                                 Console.WriteLine(
-                                    $"[AgvPlc {pointCode}] 第2字节 0x{taskByte:X2} 请求取货任务={reqPick} 请求放货任务={reqPlace}");
+                                    $"[AgvPlc {pointDisplay}] 第2字节 0x{taskByte:X2} 请求取货任务={reqPick} 请求放货任务={reqPlace}");
                             }
 
                             Console.WriteLine(
-                                $"[AgvPlc {pointCode}] 第1字节 0x{statusByte:X2} 二进制={statusBin} 位为1={activeSummary}");
+                                $"[AgvPlc {pointDisplay}] 第1字节 0x{statusByte:X2} 二进制={statusBin} 位为1={activeSummary}");
 
                             _redisStore.MergeProtocolFieldsFromPlcFrame(pointCode, frame, hex, true, null);
 
                             var hardwareStatus = AgvPlcHardwareStatus.FromStatusByte(statusByte);
+                            _healthRegistry.RecordFrame(pointCode, hardwareStatus);
                             if (!hardwareFaultGate.ShouldHandle(hardwareStatus))
                             {
                                 continue;
@@ -219,7 +226,7 @@ public class AgvPlcTcpConnectionWorker : ITransientDependency
                                 _logger.LogError(
                                     ex,
                                     "PLC 硬件异常联动双端口暂停失败，后续状态帧将重试 Point={Point} StatusByte=0x{StatusByte:X2}",
-                                    pointCode,
+                                    pointDisplay,
                                     statusByte);
                             }
                         }
@@ -245,7 +252,7 @@ public class AgvPlcTcpConnectionWorker : ITransientDependency
                         }
                         catch (Exception ex)
                         {
-                            _logger.LogWarning(ex, "点位 {Point} 发送读状态失败", pointCode);
+                            _logger.LogWarning(ex, "点位 {Point} 发送读状态失败", pointDisplay);
                             sessionCts.Cancel();
                             return;
                         }
@@ -291,7 +298,7 @@ public class AgvPlcTcpConnectionWorker : ITransientDependency
                         }
                         catch (Exception ex)
                         {
-                            _logger.LogWarning(ex, "点位 {Point} 定时发送读状态失败", pointCode);
+                            _logger.LogWarning(ex, "点位 {Point} 定时发送读状态失败", pointDisplay);
                             break;
                         }
                     }
@@ -313,11 +320,12 @@ public class AgvPlcTcpConnectionWorker : ITransientDependency
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "点位 {Point} TCP 异常，将重连", pointCode);
+                _logger.LogWarning(ex, "点位 {Point} TCP 异常，将重连", pointDisplay);
                 _redisStore.MergeProtocolFieldsFromPlcFrame(pointCode, ReadOnlySpan<byte>.Empty, string.Empty, false, ex.Message);
             }
             finally
             {
+                _healthRegistry.MarkDisconnected(pointCode);
                 try
                 {
                     tcp?.Close();

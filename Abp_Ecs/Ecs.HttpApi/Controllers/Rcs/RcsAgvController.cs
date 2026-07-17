@@ -72,7 +72,8 @@ public class RcsAgvController : EcsController
 
     /// <summary>
     /// 2.1.4【国标】任务取消 → RCS <c>POST .../api/robot/controller/task/cancel</c>。
-    /// 请求体仅需 <c>cancelType</c>、<c>returnTaskType</c>、<c>robotTaskCode</c>、<c>reason</c>、<c>autoHandleMsg</c>、<c>cancelRelationTask</c>；
+    /// 请求体中的 <c>cancelType</c>、<c>returnTaskType</c> 仅为兼容旧客户端，服务端固定使用 DROP 且不创建回库任务；
+    /// 其余仅需 <c>robotTaskCode</c>、<c>reason</c>、<c>autoHandleMsg</c>、<c>cancelRelationTask</c>；
     /// <c>X-LR-REQUEST-ID</c> 等 RCS 鉴权头由服务端自动生成，无需传入。
     /// </summary>
     [HttpPost("task/cancel")]
@@ -83,8 +84,8 @@ public class RcsAgvController : EcsController
     {
         var rcsRequest = new RcsTaskCancelRequest
         {
-            CancelType = body.CancelType,
-            ReturnTaskType = body.ReturnTaskType,
+            CancelType = RcsTaskCancelRequest.ForcedCancellationType,
+            ReturnTaskType = null,
             RobotTaskCode = body.RobotTaskCode,
             Reason = body.Reason,
             AutoHandleMsg = body.AutoHandleMsg,
@@ -92,6 +93,35 @@ public class RcsAgvController : EcsController
         };
 
         var result = await _rcsApiClient.CancelTaskAsync(rcsRequest, cancellationToken);
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// 货架与机台端口绑定 → RCS <c>POST .../api/robot/controller/carrier/bind</c>。
+    /// <c>siteCode</c> 为数字机台端口。
+    /// </summary>
+    [HttpPost("carrier/bind")]
+    [Produces("application/json")]
+    public async Task<ActionResult<RcsApiResponse<object>>> BindCarrierAsync(
+        [FromBody] RcsCarrierBindRequest body,
+        CancellationToken cancellationToken)
+    {
+        body.CarrierDir = null;
+        var result = await _rcsApiClient.BindCarrierAsync(body, cancellationToken);
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// 解除货架与机台端口绑定 → RCS <c>POST .../api/robot/controller/carrier/unbind</c>。
+    /// <c>siteCode</c> 为数字机台端口。
+    /// </summary>
+    [HttpPost("carrier/unbind")]
+    [Produces("application/json")]
+    public async Task<ActionResult<RcsApiResponse<object>>> UnbindCarrierAsync(
+        [FromBody] RcsCarrierUnbindRequest body,
+        CancellationToken cancellationToken)
+    {
+        var result = await _rcsApiClient.UnbindCarrierAsync(body, cancellationToken);
         return Ok(result);
     }
 

@@ -35,6 +35,14 @@ public class AgvPlcHardwareFaultHandlerTests
 
         Assert.True(handled);
         Assert.Equal(AgvTransportTaskStatuses.Submitted, task.Status);
+        Assert.Equal("6061", task.SourceZoneCode);
+        Assert.Equal("6060", task.TargetZoneCode);
+        Assert.True(task.SourceZonePaused);
+        Assert.True(task.TargetZonePaused);
+        await repository.Received().UpdateAsync(
+            task,
+            true,
+            Arg.Any<CancellationToken>());
         await rcs.Received(1).ControlZonePauseAsync(
             Arg.Is<RcsZonePauseRequest>(x =>
                 x.ZoneCode == "6061" && x.MapCode == "AA" && x.Invoke == "FREEZE"),
@@ -69,12 +77,47 @@ public class AgvPlcHardwareFaultHandlerTests
             AgvPlcHardwareStatus.FromStatusByte(0x11));
 
         Assert.False(handled);
+        Assert.Equal("6061", task.SourceZoneCode);
+        Assert.Equal("6060", task.TargetZoneCode);
+        Assert.False(task.SourceZonePaused);
+        Assert.True(task.TargetZonePaused);
         await rcs.Received(1).ControlZonePauseAsync(
             Arg.Is<RcsZonePauseRequest>(x => x.ZoneCode == "6061"),
             Arg.Any<CancellationToken>());
         await rcs.Received(1).ControlZonePauseAsync(
             Arg.Is<RcsZonePauseRequest>(x => x.ZoneCode == "6060"),
             Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Fault_retry_skips_zone_that_is_already_paused()
+    {
+        var task = CreateTask(AgvTransportTaskStatuses.Submitted);
+        task.SourceZoneCode = "6061";
+        task.SourceZonePaused = true;
+        var repository = CreateRepository(task);
+        repository.FindAsync(task.Id, Arg.Any<bool>(), Arg.Any<CancellationToken>()).Returns(task);
+        var rcs = Substitute.For<IRcsApiClient>();
+        rcs.ControlZonePauseAsync(Arg.Any<RcsZonePauseRequest>(), Arg.Any<CancellationToken>())
+            .Returns(Success());
+        var resolver = Substitute.For<IAgvTaskZoneResolver>();
+        resolver.ResolvePointAsync("O1B", Arg.Any<CancellationToken>()).Returns("6060");
+        var handler = CreateHandler(repository, rcs, resolver);
+
+        var handled = await handler.HandleAsync(
+            "O1A",
+            AgvPlcHardwareStatus.FromStatusByte(0x18));
+
+        Assert.True(handled);
+        await resolver.DidNotReceive().ResolvePointAsync("O1A", Arg.Any<CancellationToken>());
+        await rcs.DidNotReceive().ControlZonePauseAsync(
+            Arg.Is<RcsZonePauseRequest>(x => x.ZoneCode == "6061"),
+            Arg.Any<CancellationToken>());
+        await rcs.Received(1).ControlZonePauseAsync(
+            Arg.Is<RcsZonePauseRequest>(x => x.ZoneCode == "6060"),
+            Arg.Any<CancellationToken>());
+        Assert.True(task.SourceZonePaused);
+        Assert.True(task.TargetZonePaused);
     }
 
     [Fact]
@@ -165,6 +208,11 @@ public class AgvPlcHardwareFaultHandlerTests
                 var predicate = call.Arg<Expression<Func<AgvTransportTask, bool>>>().Compile();
                 return new List<AgvTransportTask>(tasks.Where(predicate));
             });
+        repository.FindAsync(
+                Arg.Any<Guid>(),
+                Arg.Any<bool>(),
+                Arg.Any<CancellationToken>())
+            .Returns(call => tasks.Single(task => task.Id == call.Arg<Guid>()));
         return repository;
     }
 
@@ -177,6 +225,7 @@ public class AgvPlcHardwareFaultHandlerTests
             repository,
             rcs,
             resolver,
+            new AgvTaskZoneOperationLock(),
             NullLogger<AgvPlcHardwareFaultHandler>.Instance);
     }
 

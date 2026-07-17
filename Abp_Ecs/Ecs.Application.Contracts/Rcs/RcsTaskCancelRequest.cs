@@ -7,6 +7,8 @@ namespace Ecs.Rcs;
 /// <summary>2.1.4【国标】任务取消 — 请求报文消息体。</summary>
 public class RcsTaskCancelRequest
 {
+    public const string ForcedCancellationType = "DROP";
+
     [JsonPropertyName("robotTaskCode")]
     public string RobotTaskCode { get; set; }
 

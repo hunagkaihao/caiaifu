@@ -62,6 +62,7 @@ public class EcsApplicationModule : AbpModule
         context.Services.AddTransient<IRcsTaskFeedbackQuendHandler, RcsTaskFeedbackQuendHandler>();
         context.Services.AddTransient<IAgvPlcSendReadPollSender, AgvPlcSendReadPollSender>();
         context.Services.AddTransient<IAgvPlcHardwareFaultHandler, AgvPlcHardwareFaultHandler>();
+        context.Services.AddSingleton<IAgvTaskZoneOperationLock, AgvTaskZoneOperationLock>();
 
         base.ConfigureServices(context);
     }

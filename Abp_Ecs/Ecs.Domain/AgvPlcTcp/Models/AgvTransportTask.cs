@@ -1,5 +1,6 @@
 using System;
 using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations.Schema;
 using Volo.Abp.Domain.Entities;
 
 namespace Ecs.AgvPlcTcp;
@@ -33,6 +34,30 @@ public class AgvTransportTask : Entity<Guid>
 
     [StringLength(32)]
     public string Status { get; set; } = AgvTransportTaskStatuses.Created;
+
+    [StringLength(32)]
+    public string SourceZoneCode { get; set; }
+
+    [StringLength(32)]
+    public string TargetZoneCode { get; set; }
+
+    public bool SourceZonePaused { get; set; }
+
+    public bool TargetZonePaused { get; set; }
+
+    public DateTime? CancelledAt { get; set; }
+
+    public DateTime? ZonesResumedAt { get; set; }
+
+    [NotMapped]
+    public bool CanResumeZones =>
+        string.Equals(Status, AgvTransportTaskStatuses.Cancelled, StringComparison.Ordinal) &&
+        (SourceZonePaused || TargetZonePaused);
+
+    [NotMapped]
+    public bool CanResumeFaultZones =>
+        !AgvTransportTaskStatuses.IsCancellationState(Status) &&
+        (SourceZonePaused || TargetZonePaused);
 
     public DateTime CreationTime { get; set; }
 }

@@ -73,7 +73,7 @@ public class AgvPlcTcpHostedService : IHostedService
                     _logger.LogWarning(
                         "线别 {Line} 点位 {Point} 未在 Lines[{Line}].Endpoints 中配置，跳过 TCP",
                         lineKey,
-                        pointCode,
+                        AgvPlcPointCodes.ToLogDisplay(pointCode),
                         lineKey);
                     continue;
                 }

@@ -40,6 +40,27 @@ public static class AgvPlcPointCodes
             ["O4"] = new[] { O4A, O4B, O4C, O4D }
         };
 
+    private static readonly Dictionary<string, string> PointToPortCode =
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            [O1A] = "6061",
+            [O1B] = "6060",
+            [O1C] = "3080",
+            [O1D] = "3081",
+            [O2A] = "6011",
+            [O2B] = "6010",
+            [O2C] = "1080",
+            [O2D] = "1081",
+            [O3A] = "6051",
+            [O3B] = "6050",
+            [O3C] = "2050",
+            [O3D] = "2051",
+            [O4A] = "6031",
+            [O4B] = "6030",
+            [O4C] = "4120",
+            [O4D] = "4121"
+        };
+
     /// <summary>全部 16 个点位（Redis / 轮询等遍历用）。</summary>
     public static readonly string[] AllPointsAcrossLines =
     {
@@ -129,5 +150,25 @@ public static class AgvPlcPointCodes
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// 生成日志展示值，例如 O1A-6061；未知编码保持原值，避免改变业务使用的点位编码。
+    /// </summary>
+    public static string ToLogDisplay(string pointCode)
+    {
+        if (string.IsNullOrWhiteSpace(pointCode))
+        {
+            return string.Empty;
+        }
+
+        var trimmed = pointCode.Trim();
+        if (!TryResolvePointCode(trimmed, out var canonical) ||
+            !PointToPortCode.TryGetValue(canonical, out var portCode))
+        {
+            return trimmed;
+        }
+
+        return $"{canonical}-{portCode}";
     }
 }

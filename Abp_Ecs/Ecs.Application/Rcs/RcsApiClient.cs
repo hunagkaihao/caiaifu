@@ -48,10 +48,57 @@ public class RcsApiClient : IRcsApiClient
         RcsTaskCancelRequest request,
         CancellationToken cancellationToken = default)
     {
+        var forcedRequest = new RcsTaskCancelRequest
+        {
+            RobotTaskCode = request.RobotTaskCode,
+            CancelType = RcsTaskCancelRequest.ForcedCancellationType,
+            CarrierCode = request.CarrierCode,
+            RobotCode = request.RobotCode,
+            Reason = request.Reason,
+            ReturnTaskType = null,
+            AutoHandleMsg = request.AutoHandleMsg,
+            CancelRelationTask = request.CancelRelationTask,
+            TargetRoute = null,
+            Extra = request.Extra
+        };
+
         return PostInternalAsync<RcsTaskCancelRequest, RcsTaskCancelResponseData>(
             "api/robot/controller/task/cancel",
-            request,
+            forcedRequest,
             BuildMockCancel,
+            cancellationToken);
+    }
+
+    public Task<RcsApiResponse<RcsTaskQueryResponseData>> QueryTaskAsync(
+        RcsTaskQueryRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        return PostInternalAsync<RcsTaskQueryRequest, RcsTaskQueryResponseData>(
+            "api/robot/controller/task/query",
+            request,
+            BuildMockQuery,
+            cancellationToken);
+    }
+
+    public Task<RcsApiResponse<object>> BindCarrierAsync(
+        RcsCarrierBindRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        return PostInternalAsync<RcsCarrierBindRequest, object>(
+            "api/robot/controller/carrier/bind",
+            request,
+            BuildMockCarrierBind,
+            cancellationToken);
+    }
+
+    public Task<RcsApiResponse<object>> UnbindCarrierAsync(
+        RcsCarrierUnbindRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        return PostInternalAsync<RcsCarrierUnbindRequest, object>(
+            "api/robot/controller/carrier/unbind",
+            request,
+            BuildMockCarrierUnbind,
             cancellationToken);
     }
 
@@ -63,7 +110,7 @@ public class RcsApiClient : IRcsApiClient
         CancellationToken cancellationToken = default)
     {
         return PostInternalAsync<RcsZonePauseRequest, object>(
-            "rcs/rtas/api/robot/controller/zone/pause",
+            "api/robot/controller/zone/pause",
             request,
             BuildMockZonePause,
             cancellationToken);
@@ -234,6 +281,46 @@ public class RcsApiClient : IRcsApiClient
             Code = "SUCCESS",
             Message = "成功",
             Data = new RcsTaskCancelResponseData { RobotTaskCode = code, Extra = null },
+            Success = true
+        };
+    }
+
+    private static RcsApiResponse<RcsTaskQueryResponseData> BuildMockQuery(RcsTaskQueryRequest r)
+    {
+        return new RcsApiResponse<RcsTaskQueryResponseData>
+        {
+            Code = "SUCCESS",
+            Message = "成功",
+            Data = new RcsTaskQueryResponseData
+            {
+                RobotTaskCode = r.RobotTaskCode,
+                TaskStatus = "CANCELLED"
+            },
+            ErrorCode = "0",
+            Success = true
+        };
+    }
+
+    private static RcsApiResponse<object> BuildMockCarrierBind(RcsCarrierBindRequest r)
+    {
+        return new RcsApiResponse<object>
+        {
+            Code = "SUCCESS",
+            Message = "成功",
+            Data = null,
+            ErrorCode = "0",
+            Success = true
+        };
+    }
+
+    private static RcsApiResponse<object> BuildMockCarrierUnbind(RcsCarrierUnbindRequest r)
+    {
+        return new RcsApiResponse<object>
+        {
+            Code = "SUCCESS",
+            Message = "成功",
+            Data = null,
+            ErrorCode = "0",
             Success = true
         };
     }
