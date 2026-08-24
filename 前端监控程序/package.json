@@ -44,5 +44,10 @@
     "> 1%",
     "last 2 versions",
     "not dead"
-  ]
+  ],
+  "allowScripts": {
+    "core-js@2.6.12": true,
+    "core-js@3.33.3": true,
+    "yorkie@2.0.0": true
+  }
 }

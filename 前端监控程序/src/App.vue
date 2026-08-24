@@ -335,8 +335,8 @@
     O3D: '2051',
     O4A: '6031',
     O4B: '6030',
-    O4C: '4120',
-    O4D: '4121',
+    O4C: '4045',
+    O4D: '4046',
   }
   const PORT_POINT_CODES = Object.keys(POINT_PORT_CODES).reduce((acc, pointCode) => {
     acc[POINT_PORT_CODES[pointCode]] = pointCode
